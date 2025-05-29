@@ -119,8 +119,4 @@ elk_mod1 <- nimbleMCMC(
 mod1_results_long <- MCMCsummary(elk_mod1, params = 'all', round = 3)
 write.csv(mod1_results_long, 'data/results/mod1_results_long.csv')
 
-#####
-####
-###
-##
-#
+#######################################################################################################
