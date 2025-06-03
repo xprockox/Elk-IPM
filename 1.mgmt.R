@@ -1,6 +1,6 @@
 ### Elk Integrated Population Model
 ### Data management script
-### Last updated: May 29, 2025
+### Last updated: June 2, 2025
 ### Contact: xprockox@gmail.com
 
 ############################################################################################
