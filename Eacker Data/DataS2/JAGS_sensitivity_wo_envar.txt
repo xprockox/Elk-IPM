@@ -1,0 +1,180 @@
+######################################################################################
+# JAGS code for Bitterroot Elk Population IPM sensitivity model (no environmental variance 
+# estimation)
+#
+######################################################################################
+#begin data statement for right censoring indicator
+data{
+#Data for exponential adult female survival model-annual
+	for(t in 1:(nYears-1)){	
+		for(i in 1:(n.obsAF[t])){	
+			oneAF[t,i] <- 1  
+   }
+}  
+#Data for weibull calf survival model-summer
+	for(t in 1:(nYears-1)){	
+		for(i in 1:(n.obsS[t])){	
+			oneS[t,i] <- 1  
+   }
+}  
+#Data for exponential calf survival model-winter
+
+	for(t in 1:(nYears-1)){	
+		for(i in 1:(n.obsW[t])){	
+			oneW[t,i] <- 1  
+   }
+}  
+}
+#start model
+model{	
+#priors for shape parameter for summer calf survival
+		shapeS ~ dunif(0, 2)
+#informative prior for yearling survival based on Raithel et al. (2007)
+		Sy~dbeta(21.92, 2.90)	
+#vague priors for mean vital rates 
+		Saf~dbeta(1,1)
+		ScS~dbeta(1,1)
+		ScW~dbeta(1,1)
+		Preg~dbeta(1,1)
+#calculate mean annual calf survival rate
+		Sc<-ScS*ScW	
+######################################################################################
+# Initial population size (priors) at time 1 as truncated normal distribution
+		Ny[1]~dnorm(NinitY, 0.00001)T(0,) 	  #number of yearlings at time 1
+		Naf[1]~dnorm(NinitAF, 0.00001)T(0,)  #number of adult females at time 1
+				
+######################################################################################
+# Process model (biological process)
+	
+for(t in 2:nYears){
+#Derive number of calves, adults from yearlings, and adults (note that P is proportion of 
+#calves that are female after the first year of life)
+		meanNy[t] <- Sc*Preg*Naf[t-1]
+		meanNaf[t] <- (Saf*Naf[t-1]) + (Sy*(Ny[t-1]*P))
+		
+		Ny[t] ~ dpois(meanNy[t])
+		Naf[t] ~ dpois(meanNaf[t])		
+}		
+	for(t in 1:nYears){
+#Derive total population size
+		Ntot[t] <- Ny[t] + Naf[t]
+#Derive proportion of population that is yearling 
+		propY[t]<-(Ny[t])/(Ntot[t])
+#Derive proportion of population that is adult female 
+		propAF[t]<-(Naf[t])/(Ntot[t])
+}
+
+#Derive annual growth rates (with numerical offset)
+	for(t in 1:(nYears-1)){
+		pop.growth[t]<-((Ntot[t+1] + 0.000001)/(Ntot[t] + 0.000001))
+}
+#Derive arithmetic mean growth rate
+		meanGROWTH<- sum(pop.growth)/(nYears-1)
+#Derive geometric mean growth rate
+		medianGROWTH<-(prod(pop.growth))^(1/(nYears-1))
+
+		
+######################################################################################
+#Observation models (aka. Likelihoods for telemetry and pregnancy data)
+#Adult female survival
+	for(t in 1:nYears-1){	
+		for(i in 1:(n.obsAF[t])){	
+			oneAF[t,i]~dinterval(yAF[t,i], y.censAF[t,i])	
+			yAF[t,i]~dexp(lambdaAF)T(y.entAF[t,i], )		
+}					
+}
+		lambdaAF <- -log(Saf)/365
+######################################################################################
+#Pregnancy data from collared adult females 			
+	for(t in 1:nYears-1){	
+		preg[t] ~ dbin(Preg, afCollars[t])
+}	
+							
+######################################################################################
+#summer calf survival
+	for(t in 1:(nYears-1)){	
+		for(i in 1:(n.obsS[t])){
+			oneS[t,i]~dinterval(yS[t,i], y.censS[t,i])	
+			yS[t,i]~dweib(shapeS, lambdaS)T(y.entS[t,i], )		
+	}			
+}
+		lambdaS<- -log(ScS)/pow(185, shapeS)
+#winter calf survival
+	for(t in 1:(nYears-1)){
+		for(i in 1:(n.obsW[t])){	
+			oneW[t,i]~dinterval(yW[t,i], y.censW[t,i])	
+			yW[t,i]~dexp(lambdaW)T(y.entW[t,i], )
+			}			
+	}
+		lambdaW<- -log(ScW)/180
+######################################################################################
+#sensitivity analysis for 2x2 matrix
+	
+#terms of quadratic (i.e., characteristic) equation	
+	Q1<- 1
+	Q2<- (-Saf)
+	Q3<- (-(Sy*P*(Sc*Preg)))
+	
+#eig.value1 is dominant eigenvalue or asymptotic growth rate
+	eig.value1<- (-Q2 + (sqrt((Q2^2) - (4*Q1*Q3))))/(2*Q1)
+	eig.value2<- (-Q2 - (sqrt((Q2^2) - (4*Q1*Q3))))/(2*Q1)
+	
+	Id1<-eig.value1*Identity
+	Id2<-eig.value2*Identity
+	
+	mat[1,1]<-0
+	mat[1,2]<-(Sc*Preg)
+	mat[2,1]<-(Sy*P)
+	mat[2,2]<-Saf
+	
+	new.mat1<-mat-Id1
+	new.mat2<-mat-Id2
+	
+	eig.vec1<-1
+	eig.vec2<-(new.mat1[1,1])/(-new.mat1[1,2])
+	eig.vect1<-eig.vec1/sqrt(1 + (eig.vec2^2))
+	eig.vect2<-eig.vec2/sqrt(1 + (eig.vec2^2))
+	
+	eig.vec3<-1
+	eig.vec4<-(new.mat2[1,1])/(-new.mat2[1,2])
+	eig.vect3<-eig.vec3/sqrt(1 + (eig.vec4^2))
+	eig.vect4<-eig.vec4/sqrt(1 + (eig.vec4^2))
+	
+	sensMAT[1,1]<-eig.vect1
+	sensMAT[1,2]<-eig.vect3
+	sensMAT[2,1]<-eig.vect2
+	sensMAT[2,2]<-eig.vect4
+	
+	inMAT[1,1]<-sensMAT[2,2]
+	inMAT[1,2]<-(-sensMAT[1,2])
+	inMAT[2,1]<-(-sensMAT[2,1])
+	inMAT[2,2]<-sensMAT[1,1]
+	
+	v <-(1/((sensMAT[1,1]*sensMAT[2,2])-(sensMAT[1,2]*sensMAT[2,1])))*inMAT
+	v1<-v[1,]
+	w1<-sensMAT[1:2,1]
+
+#Stable stage distribution
+	SSD[1]<-w1[1]/(w1[1]+w1[2])
+	SSD[2]<-w1[2]/(w1[1]+w1[2])
+#reproductive values
+	RV[1]<-v1[1]/(v1[1])
+	RV[2]<-v1[2]/(v1[1])
+#sensitivities
+	sens[1,1]<-v1[1]*w1[1]
+	sens[1,2]<-v1[1]*w1[2]
+	sens[2,1]<-v1[2]*w1[1]
+	sens[2,2]<-v1[2]*w1[2]
+#elasticities	
+	elas<-(mat/eig.value1) * sens
+#component elasticities
+	cmp.ScS<-(sens[1,2]*ScS)*(ScS/eig.value1)
+	cmp.ScW<-(sens[1,2]*ScW)*(ScW/eig.value1)
+	cmp.Sc<-(sens[1,2]*Sc)*(Sc/eig.value1)
+	cmp.Saf<-(sens[2,2]*Saf)*(Saf/eig.value1)
+	cmp.Preg<-(sens[1,2]*Preg)*(Preg/eig.value1)
+	cmp.Sy<-(sens[2,1]*Sy)*(Sy/eig.value1)
+	cmp.P<- (sens[2,1]*P)*(P/eig.value1)
+}
+#End model
+######################################################################################

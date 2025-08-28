@@ -1,0 +1,152 @@
+#####################################################################################################
+# Data, intial values, parameters to save, and other code to execute sensitivity IPM in JAGS using
+# R2jags package in Program R for East Fork (EF) elk population in Bitterroot Valley
+#
+#
+#####################################################################################################
+#####################################################################################################
+# Data for WF base IPM
+#
+#####################################################################################################
+# summer calf survival data (both sexes)
+
+#exit times
+S.Y.S<-structure(.Data=c(NA, 87, NA, NA, 136, 149, 32, 20, NA, NA, 7, NA, NA, 90, NA, NA, 9, NA, 20, 8, NA, NA, NA, NA, 25, NA, 95, NA, NA, 120, NA, NA, NA, NA, 34, 10, 22, 88, NA, 12, NA, NA, NA, NA, NA, 97, 24, 11, 8, NA, NA, 144, 112, NA, 29, 130, NA, 59, NA, 4, NA, NA, NA, NA, 59, NA, NA, NA, NA, NA, NA, 167, NA, NA, NA, NA, NA, 123, NA, NA, 13, NA, NA, NA),.Dim=c(3,28))
+
+#enter times
+S.Y.ENT.S<-structure(.Data=c(1, 3, 5, 5, 1, 1, 4, 4, 4, 3, 2, 5, 4, 3, 5, 2, 5, 5, 6, 5, 3, 5, 4, 0, 5, 5, 4, 5, 5, 5, 0, 0, 5, 3, 5, 5, 2, 4, 3, 4, 4, 5, 5, 4, 5, 3, 3, 2, 0, 5, 5, 6, 4, 3, 5, 4, 5, 4, 5, 0, 5, 5, 5, NA, 5, 3, NA, NA, 4, NA, NA, 5, NA, NA, 6, NA, NA, 5, NA, NA, 5, NA, NA, 5),.Dim=c(3,28))
+
+#censoring times
+S.Y.CEN.S<-structure(.Data=c(137, 0, 180, 180, 0, 0, 0, 0, 180, 180, 0, 123, 180, 0, 180, 180, 0, 180, 0, 0, 180, 122, 180, 180, 0, 180, 0, 111, 54, 0, 52, 37, 180, 128, 0, 0, 0, 0, 117, 0, 56, 180, 140, 180, 180, 0, 0, 0, 0, 180, 91, 0, 0, 180, 0, 0, 180, 0, 180, 0, 135, 52, 115, NA, 0, 180, NA, NA, 180, NA, NA, 0, NA, NA, 180, NA, NA, 0, NA, NA, 0, NA, NA,180),.Dim=c(3,28))
+
+#number sampled each year
+n.obsS<-c(21, 22, 28)
+
+#####################################################################################################
+# winter calf survival data (both sexes)
+
+#exit times
+S.Y.W<-structure(.Data=c(NA, NA, NA, 64, NA, NA, 32, NA, 100, NA, NA, 154, NA, NA, 113, NA, NA, 87, 12, NA, 51, 41, NA, NA, NA, NA, NA, NA, NA, NA, 75, NA, 108, 133, NA, NA, NA, NA, NA, NA, NA, NA, 35, NA, NA, 74, NA, NA, 137, NA, NA, 54, NA, NA, 95, NA, NA, NA, NA, NA, NA, NA, NA),.Dim=c(3,21))
+
+#enter times
+S.Y.ENT.W<-structure(.Data=c(3, 0, 0, 2, 0, 0, 2, 0, 0, 2, 0, 0, 2, 0, 0, 2, 0, 0, 3, 1, 0, 2, 1, 0, 0, 1, 0, 2, 2, 0, 2, 2, 0, 3, 2, 0, 2, 2, 0, 2, 2, 0, 3, 2, 0, 3, 2, NA, 3, NA, NA, 3, NA, NA, 0, NA, NA, 0, NA, NA, 0, NA, NA),.Dim=c(3,21))
+
+#censoring times
+S.Y.CEN.W<-structure(.Data=c(185, 120, 172, 0, 38, 184, 0, 185, 0, 185, 155, 0, 185, 185, 0, 185, 185, 0, 0, 185, 0, 0, 185, 185, 31, 185, 185, 185, 185, 146, 0, 185, 0, 0, 185, 181, 185, 185, 174, 185, 185, 183, 0, 185, 185, 0, 185, NA, 0, NA, NA, 0, NA, NA, 0, NA, NA, 15, NA, NA, 68, NA, NA),.Dim=c(3,21))
+
+#number sampled each year
+n.obsW<-c(21, 16, 15)
+
+#########################################################################################################
+# adult female survival data
+
+#exit times
+S.Y.AF<-structure(.Data=c(NA, NA, NA, NA, NA, NA, 313, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, 3, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, 279, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, 292, NA, NA, NA, NA, NA, 306, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA),.Dim=c(3,37))
+
+#enter times
+S.Y.ENT.AF<-structure(.Data=c(182, 0, 0, 183, 0, 0, 183, 0, 0, 251, 0, 0, 251, 181, 0, 0, 180, 0, 0, 258, 0, 0, 258, 0, 182, 0, 0, 182, 0, 0, 183, 0, 0, 183, 0, 0, 183, 0, 0, 183, 0, 0, 251, 0, 0, 251, 0, 0, 251, 0, 0, 251, 0, 0, 251, 0, 0, 251, 0, 0, 252, 0, 0, 252, 181, 0, 0, 181, NA, 0, 181, NA, 0, 181, NA, 0, 181, NA, 0, 181, NA, 0, 180, NA, 0, 180, NA, 0, 258, NA, NA, 258, NA, NA, 258, NA, NA, 258, NA, NA, 258, NA, NA, 258, NA, NA, 258, NA, NA, 258, NA),.Dim=c(3,37))
+
+#censoring times
+S.Y.CEN.AF<-structure(.Data=c(365, 178, 236, 365, 242, 293, 0, 230, 256, 365, 230, 256, 365, 365, 296, 225, 365, 256, 229, 365, 293, 225, 365, 293, 365, 181, 0, 365, 179, 293, 365, 186, 293, 365, 145, 236, 365, 365, 236, 365, 199, 180, 365, 365, 0, 257, 228, 256, 365, 230, 20, 365, 365, 293, 365, 229, 293, 365, 365, 293, 365, 229, 293, 365, 365, 293, 225, 365, NA, 225, 0, NA, 215, 365, NA, 225, 0, NA, 225, 365, NA, 225, 365, NA, 225, 365, NA, 225, 365, NA, NA, 365, NA, NA, 365, NA, NA, 365, NA, NA, 365, NA, NA, 365, NA, NA, 365, NA, NA, 365, NA),.Dim=c(3,37))
+
+#number sampled each year
+n.obsAF<-c(30, 37, 22)
+
+#####################################################################################################
+# fecundity data
+
+#number pregnant
+NumberPregWF<-c(8, 12, 19)
+
+#total sampled
+N.TOTALPREGWF<-c(13, 17, 23)
+
+#####################################################################################################
+#  aerial count data
+
+#adjusted counts of yearlings (both sexes)
+yWF<-c(73, 45, 140, 131)
+
+#adjusted counts of adult females
+afWF<-c(478, 455, 425, 486)
+
+#####################################################################################################
+# additional data for model
+#number of years included in IPM
+nYears=4
+
+#average proportion of yearlings that were female based on ratio of annual male to female calf survival
+P=0.595
+
+#initial number of yearlings to start MCMC chains
+NinitY<-yWF[1]
+
+#initial number of adult females to start MCMC chains
+NinitAF<-afWF[1]
+
+#additional matrices for sensitivity calculations (3 empty matrices and 1 identity matrix)
+mat1<-matrix(nrow=2, ncol=2)
+sensMAT1<-matrix(nrow=2, ncol=2)
+inMAT1<-matrix(nrow=2, ncol=2)
+Identity1<-matrix(c(1,0,0,1),nrow=2, ncol=2)
+
+#####################################################################################################
+# bundle data for WF (note that counts are transformed to log scale for log-normal distrubtion)
+sp.dataWF<-list(nYears=nYears,P=P,NinitY=NinitY,NinitAF=NinitAF,
+                preg=NumberPregWF,afCollars=N.TOTALPREGWF,	
+	            n.obsAF=n.obsAF, n.obsS=n.obsS, n.obsW=n.obsW,
+		        yAF=S.Y.AF,y.censAF=S.Y.CEN.AF,y.entAF=S.Y.ENT.AF,
+	            yS=S.Y.S,y.censS=S.Y.CEN.S,y.entS=S.Y.ENT.S,
+	            yW=S.Y.W,y.censW=S.Y.CEN.W,y.entW=S.Y.ENT.W,
+				Identity=Identity1, mat=mat1, sensMAT=sensMAT1, inMAT=inMAT1)
+
+# End West Fork data				
+#####################################################################################################
+# Provide initial values for WF for yearling survival (Syguess), shape parameter (shapeS), and
+# for indicator variable for dealing with censoring in time-to-event survival models for
+# adult females (yAF), summer calf survival (yS), and winter calf survival (yW)
+
+	sp.initsWF <- function(){
+	Syguess = runif(1, 0, 1)
+	shapeguessS=runif(1, 0, 2)
+	
+	list(
+	yAF=with(sp.dataWF, ifelse(is.na(yAF), y.censAF+1, NA)),
+	yS=with(sp.dataWF, ifelse(is.na(yS), y.censS+1, NA)),	
+	yW=with(sp.dataWF, ifelse(is.na(yW), y.censW+1, NA)),
+	shapeS=shapeguessS,	Sy=Syguess)}
+
+#####################################################################################################
+# Parmeters to trace in MCMC for WF population. Naming conventions are as follows: 
+# yearling survival (Sy), mean annual calf survival (Sc), mean summer calf survival (ScS),
+# shape parameter for weibull distribution (shapeS), mean adult female survival (Saf),
+# mean pregnancy probability (Preg; i.e. fecundity), 
+# arithmetic mean growth rate (meanGROWTH), geometric mean growth rate (medianGROWTH),
+# annual population growth rate (pop.growth; i.e., lambda),number of yearlings (Ny; both sexes),
+# number of adult females (Naf), total population size (Ntot)
+# asymptotic growth rate (eig.value1), sensitivity matrix (sens), elasticity matrix (elas),
+# component sensitivity calf survival (cmp.Sc), component sensitivity summer calf survival (cmp.ScS),
+# component sensitivity winter calf survival (cmp.Sc), component sensitivity adult female survival 
+# (cmp.Saf), component sensitivity yearling survival (cmp.Sy), component sensivity fecundity 
+# (cmp.Preg),component sensitivity for proportion of yearlings that are female (cmp.P)
+
+sp.paramsWF=c("Sy","Sc","ScS","shapeS","ScW","Saf","Preg","meanGROWTH","medianGROWTH","pop.growth",
+              "Ny","Naf","Ntot","eig.value1","sens","elas","cmp.Sc","cmp.ScS","cmp.ScW", "cmp.Saf","cmp.Sy","cmp.Preg","cmp.P")
+	          
+			  
+#####################################################################################################
+#install and load R2jags packages (note that you will need to install JAGS from website)
+
+#install.packages("R2jags") # run this command if R2jags is not already installed
+library(R2jags)
+
+# run sensitivity IPM using JAGS (remember to set working directory to folder with JAGS model)
+
+#set working directory
+setwd("E:/IPM_ECOappsREVISIONS/Final Submission/DataS2")
+
+rr.res_WFsens<-jags(sp.dataWF, sp.initsWF, sp.paramsWF, "JAGS_sensitivity_wo_envar.txt", 
+       n.chains=2,  n.iter=800000, n.burnin=600000, n.thin=400)
+
+# end DataS2_WF	   
+#####################################################################################################	   

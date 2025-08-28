@@ -1,0 +1,212 @@
+#####################################################################################################
+# Data, intial values, parameters to save, and other code to execute sensitivity IPM in JAGS using
+# R2jags package in Program R for West Fork (WF) elk population in Bitterroot Valley
+#
+#
+#####################################################################################################
+#####################################################################################################
+#
+#start data creation for WF
+#####################################################################################################
+#  aerial count data
+
+#adjusted counts of yearlings (both sexes)
+yWF<-c(73, 45, 140, 131)
+
+#adjusted counts of adult females
+afWF<-c(478, 455, 425, 486)
+
+# additional data for model
+#number of years included in IPM
+nYears=10
+
+#average proportion of yearlings that were female based on ratio of annual male to female calf #survival
+P=0.595
+
+#initial number of yearlings to start MCMC chains
+NinitY<-yWF[1]
+
+#initial number of adult females to start MCMC chains
+NinitAF<-afWF[1]
+
+#additional matrices for sensitivity calculations (3 empty matrices and 1 identity matrix)
+mat1<-matrix(nrow=2, ncol=2)
+sensMAT1<-matrix(nrow=2, ncol=2)
+inMAT1<-matrix(nrow=2, ncol=2)
+Identity1<-matrix(c(1,0,0,1),nrow=2, ncol=2)
+
+#####################################################################################################
+set.seed(42) # this allows the random generation of data to be repeatable
+
+#mean summer survival rate = 0.46
+#mean winter survival rate = 0.63
+#mean adult female survival rate = 0.89 
+#mean preganancy rate = 0.73
+
+#####################################################################################################
+#simulate summer calf survival (180 days)
+
+# use Poisson distribution to simulate sample sizes based on average summer calf sample size
+n.obsS<-rpois(nYears-1,24)
+
+S.Y.S<-matrix(ncol=max(n.obsS),nrow=nYears-1)
+S.Y.ENT.S<-matrix(ncol=max(n.obsS),nrow=nYears-1)
+S.Y.CEN.S<-matrix(ncol=max(n.obsS),nrow=nYears-1)
+cen.indS<-matrix(ncol=max(n.obsS),nrow=nYears-1)
+
+#generate failure times based on estimated Weibull shape and average scale parameter
+for(i in 1:nrow(S.Y.S)){
+		cen.indS[i,1:n.obsS[i]]<-rbinom(n.obsS[i],1,0.50) #simulated non-survival censoring rate
+		S.Y.S[i,1:n.obsS[i]]<-rweibull(n.obsS[i], 0.587, 162.2181)
+		S.Y.ENT.S[i,1:n.obsS[i]]<-rpois(n.obsS[i],4)
+		}
+		S.Y.S<-round(ifelse(S.Y.S>180,180,S.Y.S))
+		S.Y.S<-ifelse(S.Y.S==0,1,S.Y.S)
+		S.Y.ENT.S<-ifelse(S.Y.ENT.S>=S.Y.S,S.Y.S-1,S.Y.ENT.S)
+		S.Y.CEN.S<-ifelse(cen.indS==0,0,S.Y.S)
+		S.Y.S<-ifelse(cen.indS==1,NA,S.Y.S)
+		x<-which(S.Y.S==180)
+		S.Y.CEN.S[x]<-180
+		S.Y.S[x]<-NA
+		
+#####################################################################################################
+#simulate winter calf survival (185 days)
+
+# use Poisson distribution to simulate sample sizes based on average winter calf sample size
+n.obsW<-rpois(nYears-1,17)
+
+S.Y.W<-matrix(ncol=max(n.obsW),nrow=nYears-1)
+S.Y.ENT.W<-matrix(ncol=max(n.obsW),nrow=nYears-1)
+S.Y.CEN.W<-matrix(ncol=max(n.obsW),nrow=nYears-1)
+cen.indW<-matrix(ncol=max(n.obsW),nrow=nYears-1)
+
+#generate failure times based on estimated Weibull shape and average scale parameter
+for(i in 1:nrow(S.Y.W)){
+		cen.indW[i,1:n.obsW[i]]<-rbinom(n.obsW[i],1,0.10) #simulated non-survival censoring rate
+		S.Y.W[i,1:n.obsW[i]]<-rexp(n.obsW[i], 0.002524566)
+		S.Y.ENT.W[i,1:n.obsW[i]]<-rpois(n.obsW[i],4)
+		}
+		S.Y.W<-round(ifelse(S.Y.W>185,185,S.Y.W))
+		S.Y.W<-ifelse(S.Y.W==0,1,S.Y.W)
+		S.Y.ENT.W<-ifelse(S.Y.ENT.W>=S.Y.W,S.Y.W-1,S.Y.ENT.W)
+		S.Y.CEN.W<-ifelse(cen.indW==0,0,S.Y.W)
+		S.Y.W<-ifelse(cen.indW==1,NA,S.Y.W)
+		x<-which(S.Y.W==185)
+		S.Y.CEN.W[x]<-185
+		S.Y.W[x]<-NA
+
+#####################################################################################################
+#simulate adult female survival (365 days)
+
+# use Poisson distribution to simulate sample sizes based on average adult female sample size
+n.obsAF<-rpois(nYears-1,30)
+
+S.Y.AF<-matrix(ncol=max(n.obsAF),nrow=nYears-1)
+S.Y.ENT.AF<-matrix(ncol=max(n.obsAF),nrow=nYears-1)
+S.Y.CEN.AF<-matrix(ncol=max(n.obsAF),nrow=nYears-1)
+cen.indAF<-matrix(ncol=max(n.obsAF),nrow=nYears-1)
+
+#generate failure times based on estimated AFeibull shape and average scale parameter
+for(i in 1:nrow(S.Y.AF)){
+		cen.indAF[i,1:n.obsAF[i]]<-rbinom(n.obsAF[i],1,0.05) #simulated non-survival censoring rate
+		S.Y.AF[i,1:n.obsAF[i]]<-rexp(n.obsAF[i], 0.0002390329)
+		S.Y.ENT.AF[i,1:n.obsAF[i]]<-rpois(n.obsAF[i],4)
+		}
+		S.Y.AF<-round(ifelse(S.Y.AF>365,365,S.Y.AF))
+		S.Y.AF<-ifelse(S.Y.AF==0,1,S.Y.AF)
+		S.Y.ENT.AF<-ifelse(S.Y.ENT.AF>=S.Y.AF,S.Y.AF-1,S.Y.ENT.AF)
+		S.Y.CEN.AF<-ifelse(cen.indAF==0,0,S.Y.AF)
+		S.Y.AF<-ifelse(cen.indAF==1,NA,S.Y.AF)
+		x<-which(S.Y.AF==365)
+		S.Y.CEN.AF[x]<-365
+		S.Y.AF[x]<-NA
+		
+#####################################################################################################
+# simulate fecundity data
+
+#total sampled
+N.TOTALPREGWF<-rpois(nYears-1, 18) #number of trials based on average sample size   
+
+NumberPregWF<-rbinom(nYears-1, N.TOTALPREGWF, 0.73) #success prob based on mean pregnancy rate
+		
+#####################################################################################################
+# bundle data for WF (note that counts are transformed to log scale for log-normal distrubtion)
+sp.dataWF<-list(nYears=nYears,P=P,NinitY=NinitY,NinitAF=NinitAF,
+                preg=NumberPregWF,afCollars=N.TOTALPREGWF,	
+	            n.obsAF=n.obsAF, n.obsS=n.obsS, n.obsW=n.obsW,
+		        yAF=S.Y.AF,y.censAF=S.Y.CEN.AF,y.entAF=S.Y.ENT.AF,
+	            yS=S.Y.S,y.censS=S.Y.CEN.S,y.entS=S.Y.ENT.S,
+	            yW=S.Y.W,y.censW=S.Y.CEN.W,y.entW=S.Y.ENT.W,
+				Identity=Identity1, mat=mat1, sensMAT=sensMAT1, inMAT=inMAT1)
+			
+
+# End West Fork data				
+#####################################################################################################
+# Provide initial values for WF for yearling survival (Syguess), shape parameter (shapeS), and
+# for indicator variable for dealing with censoring in time-to-event survival models for
+# adult females (yAF), summer calf survival (yS), and winter calf survival (yW)
+
+	sp.initsWF <- function(){
+	Syguess = runif(1, 0, 1)
+	shapeguessS=runif(1, 0, 2)
+	l.ScSguess=rnorm(1,-0.5,0.1)
+	l.ScWguess=rnorm(1,0.6,0.1)
+	l.Safguess=rnorm(1,2,0.1)
+	l.Pregguess=rnorm(1,0.9,0.1)
+	
+	list(
+	yS=with(sp.dataWF, ifelse(is.na(yS), y.censS+1, NA)),	
+	yW=with(sp.dataWF, ifelse(is.na(yW), y.censW+1, NA)),
+	yAF=with(sp.dataWF, ifelse(is.na(yAF), y.censAF+1, NA)),
+	shapeS=shapeguessS,	Sy=Syguess,
+	l.ScS=l.ScSguess, l.ScW=l.ScWguess,
+	l.Saf=l.Safguess,l.Preg=l.Pregguess
+	)}
+
+#####################################################################################################
+# Parmeters to trace in MCMC for WF population. Naming conventions are as follows: 
+# yearling survival (Sy), annual calf survival (Sc), summer calf survival (ScS),
+# shape parameter for weibull distribution (shapeS), adult female survival (Saf),
+# pregnancy probability (Preg; i.e. fecundity), 
+# arithmetic mean growth rate (meanGROWTH), geometric mean growth rate (medianGROWTH),
+# annual population growth rate (pop.growth; i.e., lambda),number of yearlings (Ny; both sexes),
+# number of adult females (Naf), total population size (Ntot), 
+# asymptotic growth rate (eig.value1), sensitivity matrix (sens), elasticity matrix (elas),
+# component sensitivity calf survival (cmp.Sc), component sensitivity summer calf survival (cmp.ScS),
+# component sensitivity winter calf survival (cmp.Sc), component sensitivity adult female survival 
+# (cmp.Saf), component sensitivity yearling survival (cmp.Sy), component sensivity fecundity 
+# (cmp.Preg),
+# component sensitivity for proportion of yearlings that are female (cmp.P)
+# variance of summer survival on probability scale (var.ScS.real),
+# variance of winter calf survival on probability scale (var.ScW.real),
+# variance of adult female survival on probability scale (var.Saf.real),
+# variance of pregnancy probability on probability scale (var.Preg.real),
+# mean annual calf survival on probability scale (meanSc) 
+# mean summer calf survival on probability scale (meanScS)
+# mean winter calf survival on probability scale (meanScW)
+# mean annual adult female survival on probability scale (meanScaf)
+# mean pregnancy probability on probability scale (meanPreg)
+# simulated draw from normal distribution for annual calf survival (mSc) 
+# simulated draw from normal distribution for summer calf survival (mScS)
+# simulated draw from normal distribution for winter survival (mScW)
+# simulated draw from normal distribution for adult female survival (mSaf)
+# simulated draw from normal distribution for pregnancy probability (mPreg)
+
+sp.paramsWF=c("Sy","Sc","ScS","shapeS","ScW","Saf","Preg","meanGROWTH","medianGROWTH","pop.growth",
+              "Ny","Naf","Ntot","eig.value1","sens","elas","cmp.Sc","cmp.ScS","cmp.ScW", "cmp.Saf","cmp.Sy","cmp.Preg","cmp.P","var.ScS.real","var.ScW.real", "var.Saf.real","var.Preg.real","meanSc","meanScW","meanScS","meanSaf","meanPreg",
+			 "sig.ScS","sig.ScW","sig.Saf","sig.Preg","mSc","mScS","mScW","mSaf","mPreg")	
+			 
+#####################################################################################################
+#install and load R2jags packages (note that you will need to install JAGS from website)
+
+#install.packages("R2jags") # run this command if R2jags is not already installed
+library(R2jags)
+
+# run sensitivty IPM using JAGS (remember to set working directory to folder with JAGS model)
+
+rr.res_WF_sensENV<-jags(sp.dataWF, sp.initsWF, sp.paramsWF, "JAGS_sensitivity_w_envarBETA.txt", 
+	n.chains=2,  n.iter=800000, n.burnin=600000, n.thin=400) # thin to 1000 samples for LSA
+
+   
+# end DataS3_WF	   
+####################################################################################################	   		

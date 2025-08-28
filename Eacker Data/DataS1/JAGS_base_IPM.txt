@@ -1,0 +1,140 @@
+######################################################################################
+# JAGS code for Bitterroot Elk Population IPM
+#
+######################################################################################
+#begin data statement for right censoring indicator
+data{
+#Data for exponential adult female survival model-annual
+	for(t in 1:(nYears-1)){	
+		for(i in 1:(n.obsAF[t])){	
+			oneAF[t,i] <- 1  
+   }
+}  
+#Data for weibull calf survival model-summer
+	for(t in 1:(nYears-1)){	
+		for(i in 1:(n.obsS[t])){	
+			oneS[t,i] <- 1  
+   }
+}  
+#Data for exponential calf survival model-winter
+
+	for(t in 1:(nYears-1)){	
+		for(i in 1:(n.obsW[t])){	
+			oneW[t,i] <- 1  
+   }
+}  
+}
+#start model
+model{	
+#Observation model for counts as log normal distribution
+for(t in 1:nYears){
+		log.Y[t]~dnorm(log(Ny[t]), l.tauY)
+		log.AF[t]~dnorm(log(Naf[t]), l.tauAF)
+}
+#Priors for lognormal precision (tau)
+		l.tauY ~ dgamma(0.001, 0.001) 
+		l.tauAF ~ dgamma(0.001, 0.001)
+		
+#Derive lognormal variance from precision		
+		l.sigma2Y<-  1/l.tauY
+		l.sigma2AF<- 1/l.tauAF 
+		
+#Derive lognormal standard deviation from precision
+		l.sigmaY <-  sqrt(l.sigma2Y)
+		l.sigmaAF <- sqrt(l.sigma2AF)
+
+#Backtransfrom lognormal standard devation to normal scale
+		meanLogNy<-mean(log(Ny))
+		meanLogNaf<-mean(log(Naf))
+		
+		sigmaY <- sqrt(exp(2*meanLogNy+l.sigmaY^2)*(exp(l.sigmaY^2)-1))		
+		sigmaAF <- sqrt(exp(2*meanLogNaf+l.sigmaAF^2)*(exp(l.sigmaAF^2)-1))
+	
+#priors for shape parameter for summer calf survival
+		shapeS ~ dunif(0, 2)
+#informative prior for yearling survival based on Raithel et al. (2007)
+		Sy~dbeta(21.92, 2.90)	
+#vague priors for vital rates 
+for(t in 1:(nYears-1)){
+		Preg[t]~dbeta(1,1)
+		ScS[t]~dbeta(1,1)
+		ScW[t]~dbeta(1,1)
+		Saf[t]~dbeta(1,1)
+#calculate annual calf survival
+        Sc[t]<-ScS[t]*ScW[t]
+}
+######################################################################################
+# Initial population size (priors) at time 1 as truncated normal distribution
+		Ny[1]~dnorm(NinitY, 0.00001)T(0,) 	  #number of yearlings at time 1
+		Naf[1]~dnorm(NinitAF, 0.00001)T(0,)  #number of adult females at time 1
+				
+######################################################################################
+# Process model (biological process)
+	
+	for(t in 2:nYears){
+#Derive number of calves, adults from yearlings, and adults (note that P is proportion of 
+#calves that are female after the first year of life)
+		meanNy[t] <- Sc[t-1]*Preg[t-1]*Naf[t-1]
+		meanNaf[t] <- (Saf[t-1]*Naf[t-1]) + (Sy*(Ny[t-1]*P))
+
+#process model as Poisson distribution		
+		Ny[t] ~ dpois(meanNy[t])
+		Naf[t] ~ dpois(meanNaf[t])		
+}		
+	for(t in 1:nYears){
+#Derive total population size
+		Ntot[t] <- Ny[t] + Naf[t]
+#Derive proportion of population that are yearling 
+		propY[t]<-(Ny[t])/(Ntot[t])
+#Derive proportion of population that are adult female 
+		propAF[t]<-(Naf[t])/(Ntot[t])
+}
+
+#Derive annual growth rates (with numerical offset)
+	for(t in 1:(nYears-1)){
+		pop.growth[t]<-((Ntot[t+1] + 0.000001)/(Ntot[t] + 0.000001))
+}
+#Derive arithmetic mean growth rate
+		meanGROWTH<- sum(pop.growth)/(nYears-1)
+#Derive geometric mean growth rate
+		medianGROWTH<-(prod(pop.growth))^(1/(nYears-1))
+
+######################################################################################
+#Observation models (aka. Likelihoods for telemetry and pregnancy data)
+#Adult female survival
+	for(t in 1:(nYears-1)){
+			lambdaAF[t] <- -log(Saf[t])/365
+	for(i in 1:(n.obsAF[t])){	
+			oneAF[t,i]~dinterval(yAF[t,i], y.censAF[t,i])	
+			yAF[t,i]~dexp(lambdaAF[t])T(y.entAF[t,i], )		
+}					
+}
+
+######################################################################################
+#Pregnancy data from collared adult females 		
+	for(t in 1:(nYears-1)){	
+		preg[t] ~ dbin(Preg[t], afCollars[t])
+}
+							
+######################################################################################
+#summer calf survival
+
+	for(t in 1:(nYears-1)){
+			lambdaS[t] <- -log(ScS[t])/pow(185, shapeS)
+	for(i in 1:(n.obsS[t])){
+			oneS[t,i]~dinterval(yS[t,i], y.censS[t,i])	
+			yS[t,i]~dweib(shapeS, lambdaS[t])T(y.entS[t,i], )		
+	}			
+}
+	
+#winter calf survival
+	for(t in 1:(nYears-1)){
+		lambdaW[t] <- -log(ScW[t])/180
+	for(i in 1:(n.obsW[t])){	
+			oneW[t,i]~dinterval(yW[t,i], y.censW[t,i])	
+			yW[t,i]~dexp(lambdaW[t])T(y.entW[t,i], )
+			}			
+	}
+}
+#End model
+######################################################################################
