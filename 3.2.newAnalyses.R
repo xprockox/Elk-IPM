@@ -4,16 +4,33 @@
 ### Contact: xprockox@gmail.com
 
 ########## ----------------------- PACKAGES ----------------------- ############
+
 library(nimble)
 library(dplyr)
+library(lubridate)
 
 ########## ---------------------- DATA IMPORT --------------------- ############
-elk_df <- read.csv() # dataframe with three columns: elk_ID, birth_year, and death_year
+
+# dataframe with three columns: elk_ID, birth_year, and death_year
+elk_df <- read.csv('data/elk_survival_testData.csv')
+
 
 ########## -------------------- DATA MANAGEMENT ------------------- ############
 
+# create required columns
+elk_df <- elk_df %>%
+  mutate(death_year = year(as.Date(Last.Date.Alive))) %>%
+  rename(elk_ID = ID,
+         birth_year = BirthYear)
+
+# drop rows with incomplete information
+elk_df <- elk_df[which(complete.cases(elk_df)==TRUE),]
+
 # Ensure elk_ID is a factor or character (doesn’t affect the model, but useful)
 elk_df$elk_ID <- as.character(elk_df$elk_ID)
+
+# Create a column showing whether the elk is currently alive
+elk_df$Alive <- ifelse(elk_df$Last.Date.Alive == '2024-02-18', "Yes", "No")
 
 # Step 1: Determine full time span
 min_year <- min(elk_df$birth_year)
