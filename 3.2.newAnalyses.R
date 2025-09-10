@@ -1,112 +1,144 @@
-### Elk IPM
-### Attempt 2
-### Last updated: August 27, 2025
+### CJS Model for Elk Data
+### Last updated: Sept. 9, 2025
 ### Contact: xprockox@gmail.com
 
-########## ----------------------- PACKAGES ----------------------- ############
-
-library(nimble)
+### --------------- PACKAGES ---------------- ###
 library(dplyr)
 library(lubridate)
+library(tidyr)
 
-########## ---------------------- DATA IMPORT --------------------- ############
+### --------------- DATA IMPORT ---------------- ###
+df <- read.csv('data/elk_survival_testData.csv')
+df <- df[which(complete.cases(df)==TRUE),]
 
-# dataframe with three columns: elk_ID, birth_year, and death_year
-elk_df <- read.csv('data/elk_survival_testData.csv')
+### --------------- DATA MANAGEMENT ---------------- ###
 
+# clean df
+df_clean <- df %>%
+  mutate(
+    BirthDate = ymd(BirthDate),
+    Capture.Date = ymd(Capture.Date),
+    Last.Date.Alive = ymd(Last.Date.Alive),
+    Last.Date.Status = trimws(Last.Date.Status),
+    BirthYear = year(BirthDate)
+  ) %>%
+  filter(!is.na(Capture.Date) & !is.na(Last.Date.Alive))  # Remove incomplete entries
 
-########## -------------------- DATA MANAGEMENT ------------------- ############
+# define study period and sample size
+min_year <- min(df_clean$BirthYear, na.rm = TRUE)
+max_year <- max(year(df_clean$Last.Date.Alive), na.rm = TRUE)
+years <- min_year:max_year
+n_years <- length(years)
+n_indiv <- nrow(df_clean)
 
-# create required columns
-elk_df <- elk_df %>%
-  mutate(death_year = year(as.Date(Last.Date.Alive))) %>%
-  rename(elk_ID = ID,
-         birth_year = BirthYear)
+# intialize matrices
+y <- matrix(0, nrow = n_indiv, ncol = n_years)
+z <- matrix(NA, nrow = n_indiv, ncol = n_years)
+colnames(y) <- colnames(z) <- years
+rownames(y) <- rownames(z) <- df_clean$ID
 
-# drop rows with incomplete information
-elk_df <- elk_df[which(complete.cases(elk_df)==TRUE),]
-
-# Ensure elk_ID is a factor or character (doesn’t affect the model, but useful)
-elk_df$elk_ID <- as.character(elk_df$elk_ID)
-
-# Create a column showing whether the elk is currently alive
-elk_df$Alive <- ifelse(elk_df$Last.Date.Alive == '2024-02-18', "Yes", "No")
-
-# Step 1: Determine full time span
-min_year <- min(elk_df$birth_year)
-max_year <- max(elk_df$death_year)
-all_years <- min_year:max_year
-T <- length(all_years)
-
-# Step 2: Create mapping of years to columns
-year_index <- setNames(1:T, all_years)  # e.g., year_index[["2005"]] = column 5
-
-# Step 3: Create obs matrix
-N <- nrow(elk_df)
-obs <- matrix(NA, nrow = N, ncol = T)  # rows = elk, columns = years
-
-for (i in 1:N) {
-  by <- elk_df$birth_year[i]
-  dy <- elk_df$death_year[i]
-  first_idx <- year_index[as.character(by)]
-  death_idx <- year_index[as.character(dy)]
+# fill matrices
+for (i in 1:n_indiv) {
+  elk <- df_clean[i, ]
+  birth_year <- elk$BirthYear
+  capture_year <- year(elk$Capture.Date)
+  last_year <- year(elk$Last.Date.Alive)
+  status <- elk$Last.Date.Status
   
-  # Elk is alive from birth year through year before death
-  obs[i, first_idx:(death_idx - 1)] <- 1
+  # find column indices
+  birth_idx <- which(years == birth_year)
+  capture_idx <- which(years == capture_year)
+  last_idx <- which(years == last_year)
   
-  # Elk is dead at death year
-  obs[i, death_idx] <- 0
+  # latent state: assume alive (1) from birth until year of last confirmed alive
+  if (!is.na(birth_idx) && !is.na(last_idx)) {
+    z[i, birth_idx:last_idx] <- 1
+  }
+  
+  # if the individual was confirmed dead, mark all future years as 0
+  if (status == "Dead" && last_idx < n_years) {
+    z[i, (last_idx + 1):n_years] <- 0
+  }
+  
+  # detection matrix:
+  if (status == "Dead" && capture_idx < last_idx) {
+    y[i, capture_idx:(last_idx - 1)] <- 1
+    y[i, last_idx] <- 0  # likely died that year
+  } else if (status == "Live" && capture_idx <= last_idx) {
+    y[i, capture_idx:last_idx] <- 1  # censored after this
+  } else if (capture_idx == last_idx) {
+    y[i, capture_idx] <- 1  # one-year animal
+  }
 }
 
-# Step 4: Define other required variables
-birth_year_vec <- elk_df$birth_year
-first_vec <- year_index[as.character(elk_df$birth_year)]
-last_vec <- year_index[as.character(elk_df$death_year)]
+# visual check of matrices
+image(y, main = "Detection Matrix (y)", col = c("white", "black"))
+image(z, main = "Latent State Matrix (z)", col = c("grey", "black"))
 
-# Resulting variables:
-# - obs: N x T matrix of 1 (alive), 0 (dead), NA (not yet born or already dead)
-# - birth_year_vec: vector of birth years
-# - first_vec: numeric index of first year in matrix per elk
-# - last_vec: numeric index of last year in matrix per elk
+# vector of when the elk were first seen
+first_seen <- apply(y, 1, function(row) {
+  first <- which(row == 1)[1]
+  if (is.na(first)) return(NA) else return(first)
+})
 
+### --------------- NIMBLE CODE ---------------- ###
 
-
-survival_code <- nimbleCode({
-  # Priors for survival probabilities (on logit scale)
-  logit_phi[1] ~ dnorm(0, sd = 1.5)  # Age 0–2
-  logit_phi[2] ~ dnorm(0, sd = 1.5)  # Age 2–14
-  logit_phi[3] ~ dnorm(0, sd = 1.5)  # Age 14+
+elk_survival_code <- nimbleCode({
+  # Priors
+  phi ~ dunif(0, 1) # Survival probability
+  p ~ dunif(0, 1) # Detection probability
   
   for (i in 1:N) {
-    alive[i, first[i]] <- 1  # alive at first year (birth)
+    z[i, first_seen[i]] <- 1 # All animals alive at first seen
     
-    for (t in (first[i] + 1):last[i]) {
-      age <- t - birth_year[i]  # age in year t
-      age_class <- 1 + (age > 2) + (age > 14)
-      logit(p[i, t]) <- logit_phi[age_class]
-      
-      alive[i, t] ~ dbern(alive[i, t - 1] * p[i, t])  # survival process
+    for (t in (first_seen[i] + 1):n_years) {
+      # Only proceed if we’re not past their observed window
+      z[i, t] ~ dbern(z[i, t - 1] * phi)
     }
     
-    # Observation: 0 = died in that year, 1 = lived to next year
-    for (t in first[i]:(last[i] - 1)) {
-      obs[i, t] ~ dbern(alive[i, t])
+    for (t in first_seen[i]:n_years) {
+      y[i, t] ~ dbern(p * z[i, t])
     }
   }
 })
 
+### --------------- CONSTANTS AND SPECS ---------------- ###
 
-# Constants
-constants <- list(N = n_individuals, first = first_year_vec, last = last_year_vec)
-
-# Data
 data <- list(
-  obs = obs_matrix,              # 1 = observed alive, 0 = known dead
-  birth_year = birth_year_vec    # e.g., 1997, 1998...
+  y = y
 )
 
-# Inits
-inits <- list(
-  logit_phi = rep(0, 3),
-  alive = matrix(1, nrow = N, ncol = T_max)  # start assuming alive
+constants <- list(
+  N = nrow(y),
+  n_years = ncol(y),
+  first_seen = first_seen
 )
+
+# create z init matrix
+z_init <- z
+z_init[is.na(z_init)] <- 1  # assume alive unless evidence says otherwise
+
+inits <- list(
+  phi = runif(1, 0.8, 0.99),
+  p = runif(1, 0.6, 0.95),
+  z = z_init
+)
+
+params <- c("phi", "p")
+
+### --------------- RUN MODEL ---------------- ###
+
+elk_model <- nimbleMCMC(
+  code = elk_survival_code,
+  constants = constants,
+  data = data,
+  inits = inits,
+  monitors = params,
+  nchains = 3,
+  niter = 10000,
+  nburnin = 3000,
+  thin = 1,
+  summary = TRUE
+)
+
+elk_model
