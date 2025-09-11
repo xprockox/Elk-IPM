@@ -210,9 +210,9 @@ constants <- list(
   first_seen = first_seen
 )
 
-# Initial z matrix (assume alive)
+# Initial z matrix (assume not alive)
 z_init <- z
-z_init[is.na(z_init)] <- 1
+z_init[is.na(z_init)] <- 0
 
 # Initial values
 inits <- list(
@@ -300,24 +300,43 @@ for (i in 1:nrow(age_class)) {
   if (n3 > 0) age_class[i, alive_years[(n1 + n2 + 1):length(alive_years)]] <- 3
 }
 
+# also need last seen to identify the stage it was in when it died
+years_vector <- as.numeric(colnames(y))
+last_seen <- year(as.Date(df$Last.Date.Alive))
+last_seen <- match(last_seen, years_vector)
+
 ### --------------- NIMBLE CODE ---------------- ###
 
 elk_survival_stage_specific <- nimbleCode({
   
-  # Priors for survival by age class
-  for (k in 1:3) {
-    phi[k] ~ dunif(0, 1)
-  }
+  # Priors for survival by age class (stage)
+  phi_1 ~ dunif(0, 1)  # Calf
+  phi_2 ~ dunif(0, 1)  # Young Adult
+  phi_3 ~ dunif(0, 1)  # Old Adult
   
-  # Detection probability
+  # Prior for detection probability
   p ~ dunif(0, 1)
   
+  # State process
   for (i in 1:N) {
-    # Latent alive state
-    z[i] ~ dbern(phi[ age_class[i] ])
+    z[i, first_seen[i]] <- 1  # Animal is alive at first detection
     
-    # Observation model
-    y[i] ~ dbern(p * z[i])
+    # for all timesteps after, true state is a bernoulli dist of survival, stage-specific
+    for (t in 1:n_years) {
+      if (t > first_seen[i] & t <= last_seen[i]) {
+        z[i, t] ~ dbern(z[i, t - 1] *
+                          (age_class[i, t] == 1) * phi_1 +
+                          (age_class[i, t] == 2) * phi_2 +
+                          (age_class[i, t] == 3) * phi_3)
+      }
+    }
+    
+    # Observation process
+    for (t in 1:n_years) {
+      if (t >= first_seen[i] & t <= last_seen[i]) {
+        y[i, t] ~ dbern(p * z[i, t])
+      }
+    }
   }
 })
 
@@ -333,7 +352,7 @@ constants <- list(
   N = nrow(y),
   n_years = ncol(y),
   first_seen = first_seen,
-  age_class = age_class
+  last_seen = last_seen_index
 )
 
 # initial values
@@ -341,13 +360,15 @@ z_init <- z
 z_init[is.na(z_init)] <- 1
 
 inits <- list(
-  phi = runif(3, 0.6, 0.95),
+  phi_1 = runif(1, 0.6, 0.95),
+  phi_2 = runif(1, 0.6, 0.95),
+  phi_3 = runif(1, 0.6, 0.95),
   p = runif(1, 0.6, 0.95),
   z = z_init
 )
 
 # params to monitor
-params <- c("phi", "p")
+params <- c("phi_1", "phi_2", "phi_3", "p")
 
 ### --------------- RUN MODEL ---------------- ###
 
@@ -369,7 +390,7 @@ elk_model_stage_specific
 ### --------------- ASSESS MODEL CONVERGENCE ---------------- ###
 
 # check traceplots
-MCMCtrace(object = elk_model_temporal$samples,
+MCMCtrace(object = elk_model_stage_specific$samples,
           pdf = FALSE,
           ind = TRUE,
           Rhat = TRUE,
@@ -377,7 +398,7 @@ MCMCtrace(object = elk_model_temporal$samples,
           params = 'all')
 
 # summary stats
-MCMCsummary(elk_model_temporal$samples, params = 'all')
+MCMCsummary(elk_model_stage_specific$samples, params = 'all')
 
 # save summary stats
 elk_model_temporal_results <- MCMCsummary(elk_model_temporal$samples, params = 'all')
