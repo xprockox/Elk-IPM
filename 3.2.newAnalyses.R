@@ -222,6 +222,8 @@ image(
 axis(1, at = 1:ncol(z_flip), labels = colnames(z_flip), las = 2, cex.axis = 0.7)
 axis(2, at = 1:nrow(z_flip), labels = rev(rownames(z_flip)), las = 1, cex.axis = 0.4)
 
+rm(z_flip, y_flip)
+
 #########################################################################
 ### ------------------------ MODEL ONE ------------------------------ ###
 #########################################################################
@@ -229,7 +231,7 @@ axis(2, at = 1:nrow(z_flip), labels = rev(rownames(z_flip)), las = 1, cex.axis =
 ### Model one is the simplest version of a CJS model, where elk survival
 ### is assumed to be constant across age-classes and throughout time.
 
-# for this, we need a vector of when each elk was first seen (needed for nimble code)
+# for this, we need a vector of when each elk was first seen
 first_seen <- apply(y, 1, function(row) {
   first <- which(row == 1)[1]
   if (is.na(first)) return(n_years) else return(first)
@@ -322,31 +324,25 @@ MCMCsummary(elk_model_constant$samples, params = 'all')
 ### --------------- NIMBLE CODE ---------------- ###
 
 elk_survival_temporal <- nimbleCode({
-  # Detection probability
+  # Priors
   p ~ dunif(0, 1)
-  
-  # Time-varying survival
   for (t in 1:(n_years - 1)) {
     phi[t] ~ dunif(0, 1)
   }
   
   for (i in 1:N) {
-    # Known to be alive at first detection
-    z[i, first_seen[i]] <- 1
+    z[i, first_seen[i]] <- 1  # alive at first observation
     
-    # Latent state dynamics
     for (t in (first_seen[i] + 1):n_years) {
-      # This line is valid because it uses a valid distribution on the RHS
-      # and the multiplier is inside the argument
-      z[i, t] ~ dbern(z[i, t - 1] * phi[t - 1])
+      z[i, t] ~ dbern(z[i, t - 1] * phi[t - 1] + 1e-10 * (1 - z[i, t - 1]))
     }
     
-    # Observation process (must be 0 or 1 only; no NA)
     for (t in first_seen[i]:n_years) {
       y[i, t] ~ dbern(p * z[i, t])
     }
   }
 })
+
 ### --------------- CONSTANTS AND SPECS ---------------- ###
 
 # Data
@@ -418,6 +414,7 @@ ggplot(elk_temporal_phi) +
   geom_ribbon(aes(x = Year, ymin = `2.5%`, ymax = `97.5%`), fill = "grey90") +
   geom_path(aes(x = Year, y = mean), color = "red", linewidth = 1) +
   scale_y_continuous(name = "Estimated Survival (φ)") +
+  scale_x_continuous(name = "Year", limits = c(1999, 2024)) +
   labs(x = "Year", title = "Time-varying survival estimates") +
   theme_bw()
 
@@ -427,9 +424,8 @@ ggplot(elk_temporal_phi) +
 
 ### Model three expands the temporally varying survival model to include
 ### unique survival values for each "class" or "stage" of elk. The stages are:
-### 1: 0-1 year old
-### 2: 2-13 years old
-### 3: 14+ years old
+### 1: 0-13 years old
+### 2: 14+ years old
 
 ### First we need to build a matrix that shows these stages.
 
