@@ -1,5 +1,5 @@
 ### CJS Model for Elk Data
-### Last updated: Sept. 9, 2025
+### Last updated: Sept. 16, 2025
 ### Contact: xprockox@gmail.com
 
 ### --------------- PACKAGES ---------------- ###
@@ -8,10 +8,14 @@ library(lubridate)
 library(tidyr)
 library(MCMCvis)
 library(ggplot2)
+library(nimble)
 
 ### --------------- DATA IMPORT ---------------- ###
 df <- read.csv('data/elk_survival_testData.csv')
-df <- df[which(complete.cases(df)==TRUE),]
+df <- df[which(complete.cases(df)==TRUE),] # drop rows with any NAs
+
+vhf <- read.csv('data/vhf.csv')
+gps <- readRDS('data/res.rds')
 
 ### --------------- DATA MANAGEMENT ---------------- ###
 
@@ -26,6 +30,40 @@ df_clean <- df %>%
   ) %>%
   filter(!is.na(Capture.Date) & !is.na(Last.Date.Alive))  # Remove incomplete entries
 
+# clean VHF and GPS data
+vhf <- vhf %>%
+  mutate(
+    Date = as.POSIXct(Date, format = "%m/%d/%Y"),
+    Signal.Heard = case_when(
+      is.na(Signal.Heard) ~ "YES",
+      Signal.Heard == "" ~ "YES",
+      Signal.Heard %in% c("Yes", "YES") ~ "YES",
+      Signal.Heard %in% c("No", "NO") ~ "NO",
+      TRUE ~ as.character(Signal.Heard)
+    ),
+    Visual. = case_when(
+      Visual. %in% c("YES", "Yes", "yes", "Y") ~ "YES",
+      TRUE ~ "NO"
+    ),
+    Year = year(Date)
+  ) %>%
+  filter(Signal.Heard == "YES" | Visual. == "YES") %>%
+  rename(Visual = Visual.)
+
+gps <- gps %>%
+  mutate(
+    dt = as.POSIXct(dt, format = "%Y-%m-%d %H:%M:%S"),
+  ) %>%
+  left_join(
+    df_clean %>% select(ID, Last.Date.Alive), 
+    by = "ID"
+  ) %>%
+  mutate(
+    Year = year(dt),
+    LastYear = year(as.POSIXct(Last.Date.Alive, format = "%Y-%m-%d"))
+  ) %>%
+  filter(Year <= LastYear)  # Remove GPS points after animal's death
+
 # define study period and sample size
 min_year <- min(df_clean$BirthYear, na.rm = TRUE)
 max_year <- max(year(df_clean$Last.Date.Alive), na.rm = TRUE)
@@ -33,55 +71,156 @@ years <- min_year:max_year
 n_years <- length(years)
 n_indiv <- nrow(df_clean)
 
-# intialize matrices
-y <- matrix(0, nrow = n_indiv, ncol = n_years)
-z <- matrix(NA, nrow = n_indiv, ncol = n_years)
+### --------------- MATRIX CONSTRUCTION (OBS. & LATENT STATES) ---------------- ###
+
+# Initialize matrices
+y <- matrix(0, nrow = n_indiv, ncol = n_years) # observations
+z <- matrix(NA, nrow = n_indiv, ncol = n_years) # latent (true) states
 colnames(y) <- colnames(z) <- years
 rownames(y) <- rownames(z) <- df_clean$ID
 
-# fill matrices
+# Fill in matrices
 for (i in 1:n_indiv) {
   elk <- df_clean[i, ]
+  elk_id <- elk$ID
+  
   birth_year <- elk$BirthYear
   capture_year <- year(elk$Capture.Date)
   last_year <- year(elk$Last.Date.Alive)
   status <- elk$Last.Date.Status
   
-  # find column indices
+  # Column indices
   birth_idx <- which(years == birth_year)
   capture_idx <- which(years == capture_year)
   last_idx <- which(years == last_year)
   
-  # latent state: assume alive (1) from birth until year of last confirmed alive
+  # Latent state: assume alive from birth through year of last known alive
   if (!is.na(birth_idx) && !is.na(last_idx)) {
     z[i, birth_idx:last_idx] <- 1
   }
   
-  # if the individual was confirmed dead, mark all future years as 0
+  # If known dead, mark all years after death as 0
   if (status == "Dead" && last_idx < n_years) {
     z[i, (last_idx + 1):n_years] <- 0
   }
   
-  # detection matrix:
-  if (status == "Dead" && capture_idx < last_idx) {
-    y[i, capture_idx:(last_idx - 1)] <- 1
-    y[i, last_idx] <- 0  # likely died that year
-  } else if (status == "Live" && capture_idx <= last_idx) {
-    y[i, capture_idx:last_idx] <- 1  # censored after this
-  } else if (capture_idx == last_idx) {
-    y[i, capture_idx] <- 1  # one-year animal
+  # Observation matrix (y) constructed based on VHF and GPS data
+  
+  # Extract observed years from VHF
+  vhf_years <- vhf %>%
+    filter(ID == elk_id) %>%
+    pull(Year) %>%
+    unique()
+  
+  # Extract observed years from GPS
+  gps_years <- gps %>%
+    filter(ID == elk_id) %>%
+    pull(Year) %>%
+    unique()
+  
+  # Combine and deduplicate
+  observed_years <- sort(unique(c(vhf_years, gps_years)))
+  
+  # Fill y matrix
+  for (yr in observed_years) {
+    if (yr %in% years) {
+      y[i, as.character(yr)] <- 1
+    }
   }
 }
 
-# visual check of matrices
-image(y, main = "Detection Matrix (y)", col = c("white", "black"))
-image(z, main = "Latent State Matrix (z)", col = c("grey", "black"))
+# The above process does not necessarily mark the year of capture as a detection, 
+# e.g. if the collar failed immediately and provided no GPS or VHF data,
+# so we can force detections for all individuals during their year of capture:
+df_clean$CaptureYear <- lubridate::year(df_clean$Capture.Date)
 
-# vector of when the elk were first seen
-first_seen <- apply(y, 1, function(row) {
-  first <- which(row == 1)[1]
-  if (is.na(first)) return(NA) else return(first)
-})
+for (i in 1:nrow(df_clean)) {
+  cap_year <- df_clean$CaptureYear[i]
+  cap_col <- which(colnames(y) == cap_year)
+  if (length(cap_col) == 1) {
+    y[i, cap_col] <- 1
+  }
+}
+
+# Now if the latent state (true state) is dead, there can't be an observation.
+# Mask impossible observations in y: set to NA if z = 0
+for (i in 1:n_indiv) {
+  for (t in 1:n_years) {
+    if (!is.na(z[i, t]) && z[i, t] == 0 && y[i, t] == 1) {
+      message(paste("Setting y[", i, ",", t, "] to NA due to z = 0 but y = 1"))
+      y[i, t] <- NA  # mask inconsistent observations
+    }
+    
+    # Optional: also mask y after last known alive (if not already done)
+    if (!is.na(z[i, t]) && z[i, t] == 0) {
+      y[i, t] <- NA  # cannot be observed if truly dead
+    }
+  }
+}
+
+# And add a final check:
+
+# If z = 0, we should not see an observation (mask it)
+y[z == 0] <- 0
+
+# Ensure that wherever y = 1, z = 1
+z[y == 1] <- 1
+
+### --------------- VISUALIZE MATRICES ---------------- ###
+
+### first observations:
+# Flip y so individual 1 is at the top
+y_flip <- y[nrow(y):1, ]
+
+# Keep only columns for years >= 2000
+cols_to_keep <- which(as.numeric(colnames(y_flip)) >= 2000)
+y_flip <- y_flip[, cols_to_keep]
+
+# Plot detection matrix
+image(
+  x = 1:ncol(y_flip),
+  y = 1:nrow(y_flip),
+  z = t(y_flip),  # transpose for image()
+  col = c("white", "black"),
+  axes = FALSE,
+  xlab = "Year",
+  ylab = "Individual",
+  main = "Detection Matrix (y)"
+)
+
+# Add axis labels
+axis(1,
+     at = 1:ncol(y_flip),
+     labels = colnames(y_flip),
+     las = 2,
+     cex.axis = 0.7)
+
+axis(2,
+     at = 1:nrow(y_flip),
+     labels = rev(rownames(y)),  # reversed to match y_flip
+     las = 1,
+     cex.axis = 0.4)
+
+### then latent states:
+# Flip z so that individual 1 is at the top
+z_flip <- z[nrow(z):1, ]
+
+# Set up plot
+image(
+  x = 1:ncol(z_flip),
+  y = 1:nrow(z_flip),
+  z = t(z_flip),  # transpose for correct orientation
+  col = c("white", "gray", "black"),  # NA = white, 0 = gray, 1 = black
+  breaks = c(-0.1, 0.1, 0.9, 1.1),    # assign color by value (NA, 0, 1)
+  axes = FALSE,
+  xlab = "Year",
+  ylab = "Individual",
+  main = "Latent State Matrix (z)"
+)
+
+# Add axis labels
+axis(1, at = 1:ncol(z_flip), labels = colnames(z_flip), las = 2, cex.axis = 0.7)
+axis(2, at = 1:nrow(z_flip), labels = rev(rownames(z_flip)), las = 1, cex.axis = 0.4)
 
 #########################################################################
 ### ------------------------ MODEL ONE ------------------------------ ###
@@ -90,19 +229,27 @@ first_seen <- apply(y, 1, function(row) {
 ### Model one is the simplest version of a CJS model, where elk survival
 ### is assumed to be constant across age-classes and throughout time.
 
+# for this, we need a vector of when each elk was first seen (needed for nimble code)
+first_seen <- apply(y, 1, function(row) {
+  first <- which(row == 1)[1]
+  if (is.na(first)) return(n_years) else return(first)
+})
+first_seen <- as.integer(first_seen)
+
 ### --------------- NIMBLE CODE ---------------- ###
 
 elk_survival_constant <- nimbleCode({
-  # Priors
-  phi ~ dunif(0, 1) # Survival probability
-  p ~ dunif(0, 1) # Detection probability
+  phi ~ dunif(0, 1)
+  p ~ dunif(0, 1)
   
   for (i in 1:N) {
-    z[i, first_seen[i]] <- 1 # All animals alive at first seen
+    z[i, first_seen[i]] <- 1
     
-    for (t in (first_seen[i] + 1):n_years) {
-      # Only proceed if we’re not past their observed window
-      z[i, t] ~ dbern(z[i, t - 1] * phi)
+    # Only define z beyond first_seen[i] if possible
+    if (first_seen[i] < n_years) {
+      for (t in (first_seen[i] + 1):n_years) {
+        z[i, t] ~ dbern(z[i, t - 1] * phi)
+      }
     }
     
     for (t in first_seen[i]:n_years) {
@@ -150,7 +297,7 @@ elk_model_constant <- nimbleMCMC(
   summary = TRUE
 )
 
-elk_model_constant
+elk_model_constant$summary$all.chains
 
 ### --------------- ASSESS MODEL CONVERGENCE ---------------- ###
 
@@ -175,27 +322,31 @@ MCMCsummary(elk_model_constant$samples, params = 'all')
 ### --------------- NIMBLE CODE ---------------- ###
 
 elk_survival_temporal <- nimbleCode({
-  # Priors for detection
+  # Detection probability
   p ~ dunif(0, 1)
   
-  # Priors for time-varying survival
+  # Time-varying survival
   for (t in 1:(n_years - 1)) {
     phi[t] ~ dunif(0, 1)
   }
   
   for (i in 1:N) {
-    z[i, first_seen[i]] <- 1  # Alive at first observation
+    # Known to be alive at first detection
+    z[i, first_seen[i]] <- 1
     
+    # Latent state dynamics
     for (t in (first_seen[i] + 1):n_years) {
-      z[i, t] ~ dbern(z[i, t - 1] * phi[t - 1])  # Survival depends on year t-1
+      # This line is valid because it uses a valid distribution on the RHS
+      # and the multiplier is inside the argument
+      z[i, t] ~ dbern(z[i, t - 1] * phi[t - 1])
     }
     
+    # Observation process (must be 0 or 1 only; no NA)
     for (t in first_seen[i]:n_years) {
       y[i, t] ~ dbern(p * z[i, t])
     }
   }
 })
-
 ### --------------- CONSTANTS AND SPECS ---------------- ###
 
 # Data
@@ -239,7 +390,7 @@ elk_model_temporal <- nimbleMCMC(
   summary = TRUE
 )
 
-elk_model_temporal
+elk_model_temporal$summary$all.chains
 
 ### --------------- ASSESS MODEL CONVERGENCE ---------------- ###
 
