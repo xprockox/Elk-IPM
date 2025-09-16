@@ -421,80 +421,59 @@ ggplot(elk_temporal_phi) +
 #########################################################################
 ### ----------------------- MODEL THREE ----------------------------- ###
 #########################################################################
+# incorporating stage-specific survival
 
-### Model three expands the temporally varying survival model to include
-### unique survival values for each "class" or "stage" of elk. The stages are:
-### 1: 0-13 years old
-### 2: 14+ years old
+### ------------------- DEFINE AGE CLASS MATRIX ------------------- ###
 
-### First we need to build a matrix that shows these stages.
-
-# copy z matrix and change all non-1 values to NA 
-# (1 is when the animal was known to be alive)
 age_class <- z
-age_class[age_class != 1] <- NA
+age_class[age_class != 1] <- 0
 
-# loop over rows and assign age classes to 1s based on relative position
 for (i in 1:nrow(age_class)) {
   alive_years <- which(age_class[i, ] == 1)
-  
-  n1 <- min(2, length(alive_years)) # First 2 years
-  n2 <- min(11, length(alive_years) - n1) # Next 11 years
-  n3 <- length(alive_years) - n1 - n2 # Remaining years
-  
-  age_class[i, alive_years[1:n1]] <- 1
-  if (n2 > 0) age_class[i, alive_years[(n1 + 1):(n1 + n2)]] <- 2
-  if (n3 > 0) age_class[i, alive_years[(n1 + n2 + 1):length(alive_years)]] <- 3
+  age_class[i, alive_years] <- ifelse(1:length(alive_years) <= 13, 1, 2)
 }
 
-# also need last seen to identify the stage it was in when it died
+age_class[is.na(age_class)] <- 0
+
+# Last seen index
 years_vector <- as.numeric(colnames(y))
 last_seen <- year(as.Date(df$Last.Date.Alive))
-last_seen <- match(last_seen, years_vector)
+last_seen_index <- match(last_seen, years_vector)
 
-### --------------- NIMBLE CODE ---------------- ###
+### ------------------- NIMBLE MODEL ------------------- ###
 
 elk_survival_stage_specific <- nimbleCode({
   
-  # Priors for survival by age class (stage)
-  phi_1 ~ dunif(0, 1)  # Calf
-  phi_2 ~ dunif(0, 1)  # Young Adult
-  phi_3 ~ dunif(0, 1)  # Old Adult
+  # Priors for survival by age class
+  phi_1 ~ dunif(0, 1)  # 0–13 years
+  phi_2 ~ dunif(0, 1)  # 14+ years
   
-  # Prior for detection probability
+  # Detection probability
   p ~ dunif(0, 1)
   
-  # State process
   for (i in 1:N) {
-    z[i, first_seen[i]] <- 1  # Animal is alive at first detection
+    z[i, first_seen[i]] <- 1
     
-    # for all timesteps after, true state is a bernoulli dist of survival, stage-specific
-    for (t in 1:n_years) {
-      if (t > first_seen[i] & t <= last_seen[i]) {
-        z[i, t] ~ dbern(z[i, t - 1] *
-                          (age_class[i, t] == 1) * phi_1 +
-                          (age_class[i, t] == 2) * phi_2 +
-                          (age_class[i, t] == 3) * phi_3)
-      }
+    for (t in (first_seen[i] + 1):n_years) {
+      z[i, t] ~ dbern(max(1e-10,
+                          (age_class[i, t] == 1) * (z[i, t - 1] + 1e-10) * phi_1 +
+                            (age_class[i, t] == 2) * (z[i, t - 1] + 1e-10) * phi_2))
     }
     
-    # Observation process
-    for (t in 1:n_years) {
-      if (t >= first_seen[i] & t <= last_seen[i]) {
-        y[i, t] ~ dbern(p * z[i, t])
-      }
+    for (t in first_seen[i]:n_years) {
+      y[i, t] ~ dbern(
+        step(t - first_seen[i]) * step(last_seen[i] - t) * p * z[i, t]
+        + 1e-10
+      )
     }
   }
 })
 
-### --------------- CONSTANTS AND SPECS ---------------- ###
+### ------------------- CONSTANTS AND INITS ------------------- ###
 
-# data
-data <- list(
-  y = y
-)
+data <- list(y = y,
+             age_class = age_class)
 
-# constants
 constants <- list(
   N = nrow(y),
   n_years = ncol(y),
@@ -502,22 +481,19 @@ constants <- list(
   last_seen = last_seen_index
 )
 
-# initial values
 z_init <- z
-z_init[is.na(z_init)] <- 1
+z_init[is.na(z_init)] <- 0
 
 inits <- list(
   phi_1 = runif(1, 0.6, 0.95),
   phi_2 = runif(1, 0.6, 0.95),
-  phi_3 = runif(1, 0.6, 0.95),
   p = runif(1, 0.6, 0.95),
   z = z_init
 )
 
-# params to monitor
-params <- c("phi_1", "phi_2", "phi_3", "p")
+params <- c("phi_1", "phi_2", "p")
 
-### --------------- RUN MODEL ---------------- ###
+### ------------------- RUN MODEL ------------------- ###
 
 elk_model_stage_specific <- nimbleMCMC(
   code = elk_survival_stage_specific,
@@ -532,33 +508,17 @@ elk_model_stage_specific <- nimbleMCMC(
   summary = TRUE
 )
 
-elk_model_stage_specific
+elk_model_stage_specific$summary$all.chains
 
-### --------------- ASSESS MODEL CONVERGENCE ---------------- ###
+### ------------------- DIAGNOSTICS ------------------- ###
 
-# check traceplots
-MCMCtrace(object = elk_model_stage_specific$samples,
-          pdf = FALSE,
-          ind = TRUE,
-          Rhat = TRUE,
-          n.eff = TRUE,
-          params = 'all')
+MCMCtrace(
+  object = elk_model_stage_specific$samples,
+  pdf = FALSE,
+  ind = TRUE,
+  Rhat = TRUE,
+  n.eff = TRUE,
+  params = "all"
+)
 
-# summary stats
-MCMCsummary(elk_model_stage_specific$samples, params = 'all')
-
-# save summary stats
-elk_model_temporal_results <- MCMCsummary(elk_model_temporal$samples, params = 'all')
-
-# extract phi estimates
-elk_temporal_phi <- elk_model_temporal_results %>%
-  filter(grepl("phi\\[", rownames(elk_model_temporal_results))) %>%
-  mutate(Year = 1983:2024)  
-
-# plot temporal trend
-ggplot(elk_temporal_phi) + 
-  geom_ribbon(aes(x = Year, ymin = `2.5%`, ymax = `97.5%`), fill = "grey90") +
-  geom_path(aes(x = Year, y = mean), color = "red", linewidth = 1) +
-  scale_y_continuous(name = "Estimated Survival (φ)") +
-  labs(x = "Year", title = "Time-varying survival estimates") +
-  theme_bw()
+elk_model_stage_specific_results <- MCMCsummary(elk_model_stage_specific$samples, params = "all")
