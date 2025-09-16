@@ -28,7 +28,8 @@ df_clean <- df %>%
     Last.Date.Status = trimws(Last.Date.Status),
     BirthYear = year(BirthDate)
   ) %>%
-  filter(!is.na(Capture.Date) & !is.na(Last.Date.Alive))  # Remove incomplete entries
+  filter(!is.na(Capture.Date) & !is.na(Last.Date.Alive)) %>% # Remove incomplete entries
+  arrange(ID, Capture.Date)
 
 # clean VHF and GPS data
 vhf <- vhf %>%
@@ -136,9 +137,14 @@ df_clean$CaptureYear <- lubridate::year(df_clean$Capture.Date)
 
 for (i in 1:nrow(df_clean)) {
   cap_year <- df_clean$CaptureYear[i]
-  cap_col <- which(colnames(y) == cap_year)
-  if (length(cap_col) == 1) {
-    y[i, cap_col] <- 1
+  cap_idx <- which(years == cap_year)
+  
+  if (length(cap_idx) == 1) {
+    y[i, cap_idx] <- 1
+  }
+  
+  if (!is.na(cap_idx) && cap_idx > 1) {
+    y[i, 1:(cap_idx - 1)] <- 0
   }
 }
 
@@ -220,7 +226,7 @@ image(
 
 # Add axis labels
 axis(1, at = 1:ncol(z_flip), labels = colnames(z_flip), las = 2, cex.axis = 0.7)
-axis(2, at = 1:nrow(z_flip), labels = rev(rownames(z_flip)), las = 1, cex.axis = 0.4)
+axis(2, at = 1:nrow(z_flip), labels = rownames(z_flip), las = 1, cex.axis = 0.4)
 
 rm(z_flip, y_flip)
 
@@ -313,6 +319,8 @@ MCMCtrace(object = elk_model_constant$samples,
 
 # r-hats
 MCMCsummary(elk_model_constant$samples, params = 'all')
+
+stop('(Line 323): End of model one. Continue beyond line 323 to model two.')
 
 #########################################################################
 ### ------------------------ MODEL TWO ------------------------------ ###
@@ -418,71 +426,79 @@ ggplot(elk_temporal_phi) +
   labs(x = "Year", title = "Time-varying survival estimates") +
   theme_bw()
 
+stop('(Line 429): End of model one. Continue beyond line 429 to model two.')
+
 #########################################################################
 ### ----------------------- MODEL THREE ----------------------------- ###
 #########################################################################
 # incorporating stage-specific survival
 
-### ------------------- DEFINE AGE CLASS MATRIX ------------------- ###
+### ------------------------ BUILD STAGE MATRIX ------------------------ ###
 
+# Copy z and mask non-alive values
 age_class <- z
-age_class[age_class != 1] <- 0
+age_class[age_class != 1] <- NA
 
+# Assign class 1 (0–13 y) and class 2 (14+ y)
 for (i in 1:nrow(age_class)) {
   alive_years <- which(age_class[i, ] == 1)
-  age_class[i, alive_years] <- ifelse(1:length(alive_years) <= 13, 1, 2)
+  if (length(alive_years) == 0) next
+  split_idx <- min(length(alive_years), 14)  # 13 years of class 1, then switch
+  age_class[i, alive_years[1:split_idx]] <- 1
+  if (length(alive_years) > split_idx) {
+    age_class[i, alive_years[(split_idx + 1):length(alive_years)]] <- 2
+  }
 }
 
-age_class[is.na(age_class)] <- 0
-
-# Last seen index
+# Get last seen year index
 years_vector <- as.numeric(colnames(y))
-last_seen <- year(as.Date(df$Last.Date.Alive))
-last_seen_index <- match(last_seen, years_vector)
+last_seen_index <- match(year(as.Date(df$Last.Date.Alive)), years_vector)
 
-### ------------------- NIMBLE MODEL ------------------- ###
+
+### ------------------------ NIMBLE CODE ------------------------ ###
 
 elk_survival_stage_specific <- nimbleCode({
-  
-  # Priors for survival by age class
-  phi_1 ~ dunif(0, 1)  # 0–13 years
-  phi_2 ~ dunif(0, 1)  # 14+ years
-  
-  # Detection probability
+  # Priors
   p ~ dunif(0, 1)
+  phi_1 ~ dunif(0, 1)
+  phi_2 ~ dunif(0, 1)
   
   for (i in 1:N) {
-    z[i, first_seen[i]] <- 1
+    z[i, first_seen[i]] <- 1  # known to be alive at first detection
     
     for (t in (first_seen[i] + 1):n_years) {
-      z[i, t] ~ dbern(max(1e-10,
-                          (age_class[i, t] == 1) * (z[i, t - 1] + 1e-10) * phi_1 +
-                            (age_class[i, t] == 2) * (z[i, t - 1] + 1e-10) * phi_2))
+      z[i, t] ~ dbern(
+        z[i, t - 1] *
+          (equals(age_class[i, t - 1], 1) * phi_1 +
+             equals(age_class[i, t - 1], 2) * phi_2) +
+          1e-10 * (1 - z[i, t - 1])
+      )
     }
     
     for (t in first_seen[i]:n_years) {
-      y[i, t] ~ dbern(
-        step(t - first_seen[i]) * step(last_seen[i] - t) * p * z[i, t]
-        + 1e-10
-      )
+      y[i, t] ~ dbern(p * z[i, t])
     }
   }
 })
 
-### ------------------- CONSTANTS AND INITS ------------------- ###
+### ------------------------ MODEL SPECS ------------------------ ###
 
-data <- list(y = y,
-             age_class = age_class)
+# Data + constants
+data <- list(y = y)
 
 constants <- list(
   N = nrow(y),
   n_years = ncol(y),
-  first_seen = first_seen,
-  last_seen = last_seen_index
+  first_seen = first_seen
 )
 
-z_init <- z
-z_init[is.na(z_init)] <- 0
+# Initial values
+z_init <- matrix(NA, nrow = nrow(y), ncol = n_years)
+for (i in 1:nrow(y)) {
+  if (!is.na(first_seen[i]) && first_seen[i] < n_years) {
+    z_init[i, (first_seen[i] + 1):n_years] <- 1
+  }
+}
 
 inits <- list(
   phi_1 = runif(1, 0.6, 0.95),
@@ -493,7 +509,7 @@ inits <- list(
 
 params <- c("phi_1", "phi_2", "p")
 
-### ------------------- RUN MODEL ------------------- ###
+### ------------------------ RUN MODEL ------------------------ ###
 
 elk_model_stage_specific <- nimbleMCMC(
   code = elk_survival_stage_specific,
@@ -510,15 +526,13 @@ elk_model_stage_specific <- nimbleMCMC(
 
 elk_model_stage_specific$summary$all.chains
 
-### ------------------- DIAGNOSTICS ------------------- ###
+### -------------------- CHECK CONVERGENCE ---------------------- ###
 
-MCMCtrace(
-  object = elk_model_stage_specific$samples,
-  pdf = FALSE,
-  ind = TRUE,
-  Rhat = TRUE,
-  n.eff = TRUE,
-  params = "all"
-)
+# Traceplots
+MCMCtrace(elk_model_stage_specific$samples,
+          pdf = FALSE, ind = TRUE,
+          Rhat = TRUE, n.eff = TRUE,
+          params = 'all')
 
-elk_model_stage_specific_results <- MCMCsummary(elk_model_stage_specific$samples, params = "all")
+# Summary
+MCMCsummary(elk_model_stage_specific$samples, params = 'all')
