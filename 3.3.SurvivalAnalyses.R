@@ -6,6 +6,7 @@
 library(dplyr)
 library(lubridate)
 library(tidyr)
+library(tidyverse)
 library(MCMCvis)
 library(ggplot2)
 library(nimble)
@@ -577,12 +578,12 @@ ggplot(elk_temporal_phi) +
   labs(x = "Year", title = "Time-varying survival estimates") +
   theme_bw()
 
-stop('(Line 580): End of model two Continue beyond line 580 to model three.')
+stop('(Line 580): End of model two. Continue beyond line 580 to model three.')
 
 #########################################################################
 ### ----------------------- MODEL THREE ----------------------------- ###
 #########################################################################
-# incorporating stage-specific survival
+# incorporating stage-specific survival, but not allowing for temporally varying rates
 
 ### ------------------------ BUILD STAGE MATRIX ------------------------ ###
 
@@ -743,10 +744,10 @@ if (use_clip == TRUE) {
   )
   
   # Initial values
-  z_init <- matrix(NA, nrow = nrow(y_clipped), ncol = n_years)
+  z_init <- matrix(NA, nrow = nrow(y_clipped), ncol = ncol(y_clipped))
   for (i in 1:nrow(y_clipped)) {
-    if (!is.na(first_seen_clipped[i]) && first_seen_clipped[i] < n_years) {
-      z_init[i, (first_seen_clipped[i] + 1):n_years] <- 1
+    if (!is.na(first_seen_clipped[i]) && first_seen_clipped[i] < ncol(y_clipped)) {
+      z_init[i, (first_seen_clipped[i] + 1):ncol(y_clipped)] <- 1
     }
   }
   
@@ -764,10 +765,10 @@ if (use_clip == TRUE) {
   )
   
   # Initial values
-  z_init <- matrix(NA, nrow = nrow(y), ncol = n_years)
+  z_init <- matrix(NA, nrow = nrow(y), ncol = ncol(y))
   for (i in 1:nrow(y)) {
-    if (!is.na(first_seen[i]) && first_seen[i] < n_years) {
-      z_init[i, (first_seen[i] + 1):n_years] <- 1
+    if (!is.na(first_seen[i]) && first_seen[i] < ncol(y)) {
+      z_init[i, (first_seen[i] + 1):ncol(y)] <- 1
     }
   }
   
@@ -809,3 +810,178 @@ MCMCtrace(elk_model_stage_specific$samples,
 
 # Summary
 MCMCsummary(elk_model_stage_specific$samples, params = 'all')
+
+stop('(Line 813): End of model three. Continue beyond line 813 to model four.')
+
+#########################################################################
+### ----------------------- MODEL FOUR ------------------------------ ###
+#########################################################################
+### ideally, this is the final survival model: temporally varying, stage-specific
+### estimates of survival.
+
+### ------------------------ NIMBLE CODE ------------------------ ###
+
+elk_survival_final <- nimbleCode({
+  
+  for (t in 1:n_years){
+    # Priors
+    p[t] ~ dunif(0, 1)
+    phi_1[t] ~ dunif(0, 1)
+    phi_2[t] ~ dunif(0, 1)
+  }
+
+  
+  for (i in 1:N) {
+    z[i, first_seen[i]] <- 1  # known alive at first detection
+    
+    for (t in (first_seen[i] + 1):n_years) {
+      z[i, t] ~ dbern(
+        z[i, t - 1] * (
+          is_class1[i, t - 1] * phi_1[t] +
+            is_class2[i, t - 1] * phi_2[t]
+        ) + 1e-10 * (1 - z[i, t - 1])
+      )
+    }
+    
+    for (t in first_seen[i]:n_years) {
+      y[i, t] ~ dbern(p[t] * z[i, t])
+    }
+  }
+})
+
+### ------------------------ MODEL SPECS ------------------------ ###
+
+if (use_clip == TRUE) {
+  
+  # Data + constants
+  data <- list(y = y_clipped)
+  
+  constants <- list(
+    N = nrow(y_clipped),
+    n_years = ncol(y_clipped),
+    first_seen = first_seen_clipped,
+    is_class1 = is_class1_clipped,
+    is_class2 = is_class2_clipped
+  )
+  
+  # Initial values
+  z_init <- matrix(NA, nrow = nrow(y_clipped), ncol = ncol(y_clipped))
+  for (i in 1:nrow(y_clipped)) {
+    if (!is.na(first_seen_clipped[i]) && first_seen_clipped[i] < ncol(y_clipped)) {
+      z_init[i, (first_seen_clipped[i] + 1):ncol(y_clipped)] <- 1
+    }
+  }
+  
+  inits <- list(
+    phi_1 = runif(ncol(y_clipped), 0.6, 0.95),
+    phi_2 = runif(ncol(y_clipped), 0.6, 0.95),
+    p = runif(ncol(y_clipped), 0.6, 0.95),
+    z = z_init
+  )
+  
+} else {
+  
+  # Data + constants
+  data <- list(y = y)
+  
+  constants <- list(
+    N = nrow(y),
+    n_years = ncol(y),
+    first_seen = first_seen,
+    is_class1 = is_class1,
+    is_class2 = is_class2
+  )
+  
+  # Initial values
+  z_init <- matrix(NA, nrow = nrow(y), ncol = ncol(y))
+  for (i in 1:nrow(y)) {
+    if (!is.na(first_seen[i]) && first_seen[i] < ncol(y)) {
+      z_init[i, (first_seen[i] + 1):ncol(y)] <- 1
+    }
+  }
+  
+  inits <- list(
+    phi_1 = runif(ncol(y), 0.6, 0.95),
+    phi_2 = runif(ncol(y), 0.6, 0.95),
+    p = runif(ncol(y), 0.6, 0.95),
+    z = z_init
+  )
+  
+}
+
+
+
+params <- c("phi_1", "phi_2", "p")
+
+### ------------------------ RUN MODEL ------------------------ ###
+
+elk_model_final <- nimbleMCMC(
+  code = elk_survival_final,
+  constants = constants,
+  data = data,
+  inits = inits,
+  monitors = params,
+  nchains = 3,
+  niter = 10000,
+  nburnin = 3000,
+  thin = 1,
+  summary = TRUE
+)
+
+elk_model_final$summary$all.chains
+
+### -------------------- CHECK CONVERGENCE ---------------------- ###
+
+# Traceplots
+MCMCtrace(elk_model_final$samples,
+          pdf = FALSE, ind = TRUE,
+          Rhat = TRUE, n.eff = TRUE,
+          params = 'all')
+
+# Summary
+MCMCsummary(elk_model_final$samples, params = 'all')
+
+# Extract phi_1
+phi1_df <- MCMCsummary(elk_model_final$samples, params = "phi_1") %>%
+  as.data.frame() %>%
+  rownames_to_column("param") %>%
+  mutate(
+    time_index = as.numeric(gsub("phi_1\\[|\\]", "", param)),
+    Year = 2000 + time_index,  # Adjust if needed
+    Class = "Young (0-13 years)"
+  )
+
+# Extract phi_2
+phi2_df <- MCMCsummary(elk_model_final$samples, params = "phi_2") %>%
+  as.data.frame() %>%
+  rownames_to_column("param") %>%
+  mutate(
+    time_index = as.numeric(gsub("phi_2\\[|\\]", "", param)),
+    Year = 2000 + time_index,  # Adjust if needed
+    Class = "Old (14+ years)"
+  )
+
+# Combine
+phi_combined <- bind_rows(phi1_df, phi2_df)
+
+# Plot
+ggplot(phi_combined, aes(x = Year, y = mean, color = Class, fill = Class)) +
+  geom_ribbon(aes(ymin = `2.5%`, ymax = `97.5%`), alpha = 0.3, color = NA) +
+  geom_line(linewidth = 1.2) +
+  scale_color_manual(
+    values = c("Young (0-13 years)" = "#1f77b4",  # blue
+               "Old (14+ years)"    = "#d62728")  # red
+  ) +
+  scale_fill_manual(
+    values = c("Young (0-13 years)" = "#1f77b4",  # blue
+               "Old (14+ years)"    = "#d62728")  # red
+  ) +
+  scale_y_continuous(name = "Estimated Survival (φ)", limits = c(0, 1)) +
+  scale_x_continuous(name = "Year", limits = c(2001, 2024)) +
+  labs(title = "Time-varying Survival Estimates by Age Class") +
+  theme_bw() +
+  theme(legend.title = element_blank())
+
+stop('(Line 951): End of code.')
+
+#######################################################################
