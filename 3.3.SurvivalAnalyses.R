@@ -2,13 +2,25 @@
 ### Last updated: Sept. 16, 2025
 ### Contact: xprockox@gmail.com
 
-### --------------- PACKAGES ---------------- ###
+### --------------- PACKAGES AND SET-UP ---------------- ###
 library(dplyr)
 library(lubridate)
 library(tidyr)
 library(MCMCvis)
 library(ggplot2)
 library(nimble)
+
+# the following line determines whether your latent state and observation
+# matrices begin at the first year an elk was born (1982) or at the 
+# first year an elk was captured (2000).
+
+# the logic here is that there is no detection data from prior to capture,
+# so estimates might be impacted by the mismatch between detection data and 
+# latent state data (i.e. detection probability would be zero up until capture)
+
+# if use_clip == TRUE, models are constructed using data from 2000:present
+# if use_clip == FALSE, models are constructed using the full dataset (1982:present)
+use_clip <- TRUE 
 
 ### --------------- DATA IMPORT ---------------- ###
 df <- read.csv('data/elk_survival_testData.csv')
@@ -172,6 +184,26 @@ y[z == 0] <- 0
 # Ensure that wherever y = 1, z = 1
 z[y == 1] <- 1
 
+# create a new latent state matrix that does not include information about births 
+# (i.e. the individual is NA up until capture despite being alive)
+# (i.e.i.e we're pretending we don't have cementum info)
+z_clipped <- z  # Copy original latent state matrix
+
+for (i in 1:n_indiv) {
+  cap_year <- df_clean$CaptureYear[i]
+  cap_idx <- which(years == cap_year)
+  
+  if (length(cap_idx) == 1) {
+    z_clipped[i, 1:(cap_idx - 1)] <- NA  # Mask all years before capture
+  }
+}
+
+# drop years before capture
+z_clipped <- z_clipped[,19:ncol(z_clipped)]
+
+# now do the same for the observation matrix
+y_clipped <- y[,19:ncol(y)]
+
 ### --------------- VISUALIZE MATRICES ---------------- ###
 
 ### first observations:
@@ -230,6 +262,64 @@ axis(2, at = 1:nrow(z_flip), labels = rownames(z_flip), las = 1, cex.axis = 0.4)
 
 rm(z_flip, y_flip)
 
+#
+##
+###
+####
+#####
+######
+### ------- then plot latent states CLIPPED:
+######
+#####
+####
+###
+##
+#
+
+### start with y_clipped
+# Flip y_clipped so that individual 1 is at the top
+y_clipped_flip <- y_clipped[nrow(y_clipped):1, ]
+
+# Set up plot
+image(
+  x = 1:ncol(y_clipped_flip),
+  y = 1:nrow(y_clipped_flip),
+  z = t(y_clipped_flip),  # transpose for correct orientation
+  col = c("white", "gray", "black"),  # NA = white, 0 = gray, 1 = black
+  breaks = c(-0.1, 0.1, 0.9, 1.1),    # assign color by value (NA, 0, 1)
+  axes = FALSE,
+  xlab = "Year",
+  ylab = "Individual",
+  main = "Detection Matrix (y)"
+)
+
+# Add axis labels
+axis(1, at = 1:ncol(y_clipped_flip), labels = colnames(y_clipped_flip), las = 2, cex.axis = 0.7)
+axis(2, at = 1:nrow(y_clipped_flip), labels = rownames(y_clipped_flip), las = 1, cex.axis = 0.4)
+
+### then plot z_clipped
+# Flip z_clipped so that individual 1 is at the top
+z_clipped_flip <- z_clipped[nrow(z_clipped):1, ]
+
+# Set up plot
+image(
+  x = 1:ncol(z_clipped_flip),
+  y = 1:nrow(z_clipped_flip),
+  z = t(z_clipped_flip),  # transpose for correct orientation
+  col = c("white", "gray", "black"),  # NA = white, 0 = gray, 1 = black
+  breaks = c(-0.1, 0.1, 0.9, 1.1),    # assign color by value (NA, 0, 1)
+  axes = FALSE,
+  xlab = "Year",
+  ylab = "Individual",
+  main = "Latent State Matrix (z)"
+)
+
+# Add axis labels
+axis(1, at = 1:ncol(z_clipped_flip), labels = colnames(z_clipped_flip), las = 2, cex.axis = 0.7)
+axis(2, at = 1:nrow(z_clipped_flip), labels = rownames(z_clipped_flip), las = 1, cex.axis = 0.4)
+
+rm(z_clipped_flip, y_clipped_flip)
+
 #########################################################################
 ### ------------------------ MODEL ONE ------------------------------ ###
 #########################################################################
@@ -243,6 +333,12 @@ first_seen <- apply(y, 1, function(row) {
   if (is.na(first)) return(n_years) else return(first)
 })
 first_seen <- as.integer(first_seen)
+
+first_seen_clipped <- apply(y_clipped, 1, function(row) {
+  first <- which(row == 1)[1]
+  if (is.na(first)) return(ncol(y_clipped)) else return(first)
+})
+first_seen_clipped <- as.integer(first_seen_clipped)
 
 ### --------------- NIMBLE CODE ---------------- ###
 
@@ -268,19 +364,42 @@ elk_survival_constant <- nimbleCode({
 
 ### --------------- CONSTANTS AND SPECS ---------------- ###
 
-data <- list(
-  y = y
-)
-
-constants <- list(
-  N = nrow(y),
-  n_years = ncol(y),
-  first_seen = first_seen
-)
-
-# create z init matrix
-z_init <- z
-z_init[is.na(z_init)] <- 1  # assume alive unless evidence says otherwise
+if (use_clip == TRUE){
+  
+  # data
+  data <- list(
+    y = y_clipped
+  )
+  
+  # constants
+  constants <- list(
+    N = nrow(y_clipped),
+    n_years = ncol(y_clipped),
+    first_seen = first_seen_clipped
+  )
+  
+  # create z init matrix
+  z_init <- z_clipped
+  z_init[is.na(z_init)] <- 1  # assume alive unless evidence says otherwise
+  
+} else {
+  
+  # data
+  data <- list(
+    y = y
+  )
+  
+  # constants
+  constants <- list(
+    N = nrow(y),
+    n_years = ncol(y),
+    first_seen = first_seen
+  )
+  
+  # create z init matrix
+  z_init <- z
+  z_init[is.na(z_init)] <- 1  # assume alive unless evidence says otherwise
+}
 
 inits <- list(
   phi = runif(1, 0.8, 0.99),
@@ -320,7 +439,7 @@ MCMCtrace(object = elk_model_constant$samples,
 # r-hats
 MCMCsummary(elk_model_constant$samples, params = 'all')
 
-stop('(Line 323): End of model one. Continue beyond line 323 to model two.')
+stop('(Line 442): End of model one. Continue beyond line 442 to model two.')
 
 #########################################################################
 ### ------------------------ MODEL TWO ------------------------------ ###
