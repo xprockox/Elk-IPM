@@ -320,16 +320,9 @@ axis(2, at = 1:nrow(z_clipped_flip), labels = rownames(z_clipped_flip), las = 1,
 
 rm(z_clipped_flip, y_clipped_flip)
 
-stop('All required matrices constructed (line 323).')
+### --------------- FIRST SEEN VECTOR ---------------- ###
 
-#########################################################################
-### ------------------------ MODEL ONE ------------------------------ ###
-#########################################################################
-
-### Model one is the simplest version of a CJS model, where elk survival
-### is assumed to be constant across age-classes and throughout time.
-
-# for this, we need a vector of when each elk was first seen
+# finally, we need a vector of when each individual was first seen
 first_seen <- apply(y, 1, function(row) {
   first <- which(row == 1)[1]
   if (is.na(first)) return(n_years) else return(first)
@@ -341,6 +334,15 @@ first_seen_clipped <- apply(y_clipped, 1, function(row) {
   if (is.na(first)) return(ncol(y_clipped)) else return(first)
 })
 first_seen_clipped <- as.integer(first_seen_clipped)
+
+stop('All required matrices constructed (line 338).')
+
+#########################################################################
+### ------------------------ MODEL ONE ------------------------------ ###
+#########################################################################
+
+### Model one is the simplest version of a CJS model, where elk survival
+### is assumed to be constant across age-classes and throughout time.
 
 ### --------------- NIMBLE CODE ---------------- ###
 
@@ -441,7 +443,7 @@ MCMCtrace(object = elk_model_constant$samples,
 # r-hats
 MCMCsummary(elk_model_constant$samples, params = 'all')
 
-stop('(Line 442): End of model one. Continue beyond line 442 to model two.')
+stop('(Line 446): End of model one. Continue beyond line 446 to model two.')
 
 #########################################################################
 ### ------------------------ MODEL TWO ------------------------------ ###
@@ -575,7 +577,7 @@ ggplot(elk_temporal_phi) +
   labs(x = "Year", title = "Time-varying survival estimates") +
   theme_bw()
 
-stop('(Line 429): End of model one. Continue beyond line 429 to model two.')
+stop('(Line 580): End of model two Continue beyond line 580 to model three.')
 
 #########################################################################
 ### ----------------------- MODEL THREE ----------------------------- ###
@@ -605,6 +607,7 @@ last_seen_index <- match(year(as.Date(df$Last.Date.Alive)), years_vector)
 
 # Create clipped version of the stage matrix
 
+# copy stage matrix
 age_class_clipped <- age_class
 
 for (i in 1:n_indiv) {
@@ -616,10 +619,16 @@ for (i in 1:n_indiv) {
   }
 }
 
-# create a new dataframe indicating whether age_class is valid (needed for modeling)
-is_defined <- !is.na(age_class)
-is_defined_clipped <- !is.na(age_class_clipped)
+# clip to years 2000:2024
+age_class_clipped <- age_class_clipped[,19:ncol(age_class_clipped)]
 
+# create dummy matrices that are 0s and 1s representing each class (helps with if-then
+# logic in the model block, since NIMBLE doesn't support actual if-then statements)
+is_class1_clipped <- array(0, dim = c(nrow(age_class_clipped), ncol(age_class_clipped)))
+is_class2_clipped <- array(0, dim = c(nrow(age_class_clipped), ncol(age_class_clipped)))
+
+is_class1_clipped[age_class_clipped == 1] <- 1
+is_class2_clipped[age_class_clipped == 2] <- 1
 
 ### ------------------------ VISUALIZE STAGE MATRIX ------------------------ ###
 
@@ -701,16 +710,14 @@ elk_survival_stage_specific <- nimbleCode({
   phi_2 ~ dunif(0, 1)
   
   for (i in 1:N) {
-    z[i, first_seen[i]] <- 1  # known to be alive at first detection
+    z[i, first_seen[i]] <- 1  # known alive at first detection
     
     for (t in (first_seen[i] + 1):n_years) {
       z[i, t] ~ dbern(
-        z[i, t - 1] *
-          (is_defined[i, t - 1] * (
-            equals(age_class[i, t - 1], 1) * phi_1 +
-              equals(age_class[i, t - 1], 2) * phi_2
-          )) +
-          1e-10 * (1 - z[i, t - 1])
+        z[i, t - 1] * (
+          is_class1[i, t - 1] * phi_1 +
+            is_class2[i, t - 1] * phi_2
+        ) + 1e-10 * (1 - z[i, t - 1])
       )
     }
     
@@ -731,8 +738,8 @@ if (use_clip == TRUE) {
     N = nrow(y_clipped),
     n_years = ncol(y_clipped),
     first_seen = first_seen_clipped,
-    is_defined = is_defined_clipped,
-    age_class = age_class_clipped
+    is_class1 = is_class1_clipped,
+    is_class2 = is_class2_clipped
   )
   
   # Initial values
@@ -752,8 +759,8 @@ if (use_clip == TRUE) {
     N = nrow(y),
     n_years = ncol(y),
     first_seen = first_seen,
-    is_defined = is_defined,
-    age_class = age_class
+    is_class1 = is_class1,
+    is_class2 = is_class2
   )
   
   # Initial values
