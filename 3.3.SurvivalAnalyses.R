@@ -320,6 +320,8 @@ axis(2, at = 1:nrow(z_clipped_flip), labels = rownames(z_clipped_flip), las = 1,
 
 rm(z_clipped_flip, y_clipped_flip)
 
+stop('All required matrices constructed (line 323).')
+
 #########################################################################
 ### ------------------------ MODEL ONE ------------------------------ ###
 #########################################################################
@@ -472,28 +474,56 @@ elk_survival_temporal <- nimbleCode({
 
 ### --------------- CONSTANTS AND SPECS ---------------- ###
 
-# Data
-data <- list(
-  y = y
-)
-
-# Constants
-constants <- list(
-  N = nrow(y),
-  n_years = ncol(y),
-  first_seen = first_seen
-)
-
-# Initial z matrix (assume not alive)
-z_init <- z
-z_init[is.na(z_init)] <- 0
-
-# Initial values
-inits <- list(
-  phi = runif(ncol(y) - 1, 0.8, 0.99),
-  p = runif(1, 0.6, 0.95),
-  z = z_init
-)
+if (use_clip == TRUE) {
+  
+  # Data
+  data <- list(
+    y = y_clipped
+  )
+  
+  # Constants
+  constants <- list(
+    N = nrow(y_clipped),
+    n_years = ncol(y_clipped),
+    first_seen = first_seen_clipped
+  )
+  
+  # Initial z matrix (assume not alive)
+  z_init <- z_clipped
+  z_init[is.na(z_init)] <- 0
+  
+  # Initial values
+  inits <- list(
+    phi = runif(ncol(y_clipped) - 1, 0.8, 0.99),
+    p = runif(1, 0.6, 0.95),
+    z = z_init
+  )
+  
+} else {
+  
+  # Data
+  data <- list(
+    y = y
+  )
+  
+  # Constants
+  constants <- list(
+    N = nrow(y),
+    n_years = ncol(y),
+    first_seen = first_seen
+  )
+  
+  # Initial z matrix (assume not alive)
+  z_init <- z
+  z_init[is.na(z_init)] <- 0
+  
+  # Initial values
+  inits <- list(
+    phi = runif(ncol(y) - 1, 0.8, 0.99),
+    p = runif(1, 0.6, 0.95),
+    z = z_init
+  )
+}
 
 # Parameters to monitor
 params <- c("phi", "p")
@@ -534,14 +564,14 @@ elk_model_temporal_results <- MCMCsummary(elk_model_temporal$samples, params = '
 # extract phi estimates
 elk_temporal_phi <- elk_model_temporal_results %>%
   filter(grepl("phi\\[", rownames(elk_model_temporal_results))) %>%
-  mutate(Year = 1983:2024)  
+  mutate(Year = 2001:2024)  
 
 # plot temporal trend
 ggplot(elk_temporal_phi) + 
   geom_ribbon(aes(x = Year, ymin = `2.5%`, ymax = `97.5%`), fill = "grey90") +
   geom_path(aes(x = Year, y = mean), color = "red", linewidth = 1) +
   scale_y_continuous(name = "Estimated Survival (φ)") +
-  scale_x_continuous(name = "Year", limits = c(1999, 2024)) +
+  scale_x_continuous(name = "Year", limits = c(2001, 2024)) +
   labs(x = "Year", title = "Time-varying survival estimates") +
   theme_bw()
 
@@ -573,8 +603,30 @@ for (i in 1:nrow(age_class)) {
 years_vector <- as.numeric(colnames(y))
 last_seen_index <- match(year(as.Date(df$Last.Date.Alive)), years_vector)
 
+# Create clipped version of the stage matrix
+
+age_class_clipped <- age_class
+
+for (i in 1:n_indiv) {
+  cap_year <- df_clean$CaptureYear[i]
+  cap_idx <- which(years == cap_year)
+  
+  if (length(cap_idx) == 1) {
+    age_class_clipped[i, 1:(cap_idx - 1)] <- NA  # Mask all years before capture
+  }
+}
+
+# create a new dataframe indicating whether age_class is valid (needed for modeling)
+is_defined <- !is.na(age_class)
+is_defined_clipped <- !is.na(age_class_clipped)
+
+
 ### ------------------------ VISUALIZE STAGE MATRIX ------------------------ ###
 
+# reset the visualizing pane (par settings from MCMC plots still active)
+dev.off()
+
+### non-clipped:
 # Recode age_class for plotting
 plot_matrix <- age_class
 plot_matrix[plot_matrix == 1] <- 1  # class 1 (0–13 y)
@@ -607,6 +659,38 @@ axis(2, at = 1:nrow(plot_matrix), labels = rev(rownames(plot_matrix)), las = 1, 
 legend("topright", legend = c("Not Alive", "Age 0–13", "Age 14+"),
        fill = plot_colors, cex = 0.8, border = NA)
 
+### clipped:
+# Recode age_class_clipped for plotting
+plot_matrix <- age_class_clipped
+plot_matrix[plot_matrix == 1] <- 1  # class 1 (0–13 y)
+plot_matrix[plot_matrix == 2] <- 2  # class 2 (14+ y)
+plot_matrix[is.na(plot_matrix)] <- 0  # non-alive = white
+
+# Flip
+plot_matrix <- plot_matrix[nrow(plot_matrix):1, ]
+
+# Define colors: white = NA, blue = class 1, orange = class 2
+plot_colors <- c("white", "skyblue", "orange")
+
+# Plot
+image(
+  x = 1:ncol(plot_matrix),
+  y = 1:nrow(plot_matrix),
+  z = t(plot_matrix),
+  col = plot_colors,
+  axes = FALSE,
+  xlab = "Year",
+  ylab = "Individual",
+  main = "Age Class Matrix"
+)
+
+# Axis labels
+axis(1, at = 1:ncol(plot_matrix), labels = colnames(plot_matrix), las = 2, cex.axis = 0.7)
+axis(2, at = 1:nrow(plot_matrix), labels = rev(rownames(plot_matrix)), las = 1, cex.axis = 0.4)
+
+# Add legend
+legend("topright", legend = c("Not Alive", "Age 0–13", "Age 14+"),
+       fill = plot_colors, cex = 0.8, border = NA)
 
 ### ------------------------ NIMBLE CODE ------------------------ ###
 
@@ -622,8 +706,10 @@ elk_survival_stage_specific <- nimbleCode({
     for (t in (first_seen[i] + 1):n_years) {
       z[i, t] ~ dbern(
         z[i, t - 1] *
-          (equals(age_class[i, t - 1], 1) * phi_1 +
-             equals(age_class[i, t - 1], 2) * phi_2) +
+          (is_defined[i, t - 1] * (
+            equals(age_class[i, t - 1], 1) * phi_1 +
+              equals(age_class[i, t - 1], 2) * phi_2
+          )) +
           1e-10 * (1 - z[i, t - 1])
       )
     }
@@ -636,21 +722,48 @@ elk_survival_stage_specific <- nimbleCode({
 
 ### ------------------------ MODEL SPECS ------------------------ ###
 
-# Data + constants
-data <- list(y = y)
-
-constants <- list(
-  N = nrow(y),
-  n_years = ncol(y),
-  first_seen = first_seen
-)
-
-# Initial values
-z_init <- matrix(NA, nrow = nrow(y), ncol = n_years)
-for (i in 1:nrow(y)) {
-  if (!is.na(first_seen[i]) && first_seen[i] < n_years) {
-    z_init[i, (first_seen[i] + 1):n_years] <- 1
+if (use_clip == TRUE) {
+  
+  # Data + constants
+  data <- list(y = y_clipped)
+  
+  constants <- list(
+    N = nrow(y_clipped),
+    n_years = ncol(y_clipped),
+    first_seen = first_seen_clipped,
+    is_defined = is_defined_clipped,
+    age_class = age_class_clipped
+  )
+  
+  # Initial values
+  z_init <- matrix(NA, nrow = nrow(y_clipped), ncol = n_years)
+  for (i in 1:nrow(y_clipped)) {
+    if (!is.na(first_seen_clipped[i]) && first_seen_clipped[i] < n_years) {
+      z_init[i, (first_seen_clipped[i] + 1):n_years] <- 1
+    }
   }
+  
+} else {
+  
+  # Data + constants
+  data <- list(y = y)
+  
+  constants <- list(
+    N = nrow(y),
+    n_years = ncol(y),
+    first_seen = first_seen,
+    is_defined = is_defined,
+    age_class = age_class
+  )
+  
+  # Initial values
+  z_init <- matrix(NA, nrow = nrow(y), ncol = n_years)
+  for (i in 1:nrow(y)) {
+    if (!is.na(first_seen[i]) && first_seen[i] < n_years) {
+      z_init[i, (first_seen[i] + 1):n_years] <- 1
+    }
+  }
+  
 }
 
 inits <- list(
