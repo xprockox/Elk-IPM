@@ -179,8 +179,8 @@ z[y == 1] <- 1
 y_flip <- y[nrow(y):1, ]
 
 # Keep only columns for years >= 2000
-cols_to_keep <- which(as.numeric(colnames(y_flip)) >= 2000)
-y_flip <- y_flip[, cols_to_keep]
+# cols_to_keep <- which(as.numeric(colnames(y_flip)) >= 2000)
+# y_flip <- y_flip[, cols_to_keep]
 
 # Plot detection matrix
 image(
@@ -453,6 +453,40 @@ for (i in 1:nrow(age_class)) {
 # Get last seen year index
 years_vector <- as.numeric(colnames(y))
 last_seen_index <- match(year(as.Date(df$Last.Date.Alive)), years_vector)
+
+### ------------------------ VISUALIZE STAGE MATRIX ------------------------ ###
+
+# Recode age_class for plotting
+plot_matrix <- age_class
+plot_matrix[plot_matrix == 1] <- 1  # class 1 (0–13 y)
+plot_matrix[plot_matrix == 2] <- 2  # class 2 (14+ y)
+plot_matrix[is.na(plot_matrix)] <- 0  # non-alive = white
+
+# Flip
+plot_matrix <- plot_matrix[nrow(plot_matrix):1, ]
+
+# Define colors: white = NA, blue = class 1, orange = class 2
+plot_colors <- c("white", "skyblue", "orange")
+
+# Plot
+image(
+  x = 1:ncol(plot_matrix),
+  y = 1:nrow(plot_matrix),
+  z = t(plot_matrix),
+  col = plot_colors,
+  axes = FALSE,
+  xlab = "Year",
+  ylab = "Individual",
+  main = "Age Class Matrix"
+)
+
+# Axis labels
+axis(1, at = 1:ncol(plot_matrix), labels = colnames(plot_matrix), las = 2, cex.axis = 0.7)
+axis(2, at = 1:nrow(plot_matrix), labels = rev(rownames(plot_matrix)), las = 1, cex.axis = 0.4)
+
+# Add legend
+legend("topright", legend = c("Not Alive", "Age 0–13", "Age 14+"),
+       fill = plot_colors, cex = 0.8, border = NA)
 
 
 ### ------------------------ NIMBLE CODE ------------------------ ###
