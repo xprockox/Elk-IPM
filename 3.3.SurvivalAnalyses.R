@@ -578,7 +578,13 @@ ggplot(elk_temporal_phi) +
   labs(x = "Year", title = "Time-varying survival estimates") +
   theme_bw()
 
-stop('(Line 580): End of model two. Continue beyond line 580 to model three.')
+stop('(Line 580): End of model two. Continue beyond line 580 to save results, or
+     skip to line XXX to begin model three.')
+
+elk_temporal_phi <- elk_temporal_phi %>%
+  select(Year, mean, `2.5%`, `97.5%`)
+  
+write.csv(elk_temporal_phi, 'data/intermediate/temp_phi_noStages.csv')
 
 #########################################################################
 ### ----------------------- MODEL THREE ----------------------------- ###
@@ -591,11 +597,11 @@ stop('(Line 580): End of model two. Continue beyond line 580 to model three.')
 age_class <- z
 age_class[age_class != 1] <- NA
 
-# Assign class 1 (0–13 y) and class 2 (14+ y)
+# Assign class 1 (0–14 y) and class 2 (> 14 y)
 for (i in 1:nrow(age_class)) {
   alive_years <- which(age_class[i, ] == 1)
   if (length(alive_years) == 0) next
-  split_idx <- min(length(alive_years), 14)  # 13 years of class 1, then switch
+  split_idx <- min(length(alive_years), 15)  # 14 years of class 1, then switch
   age_class[i, alive_years[1:split_idx]] <- 1
   if (length(alive_years) > split_idx) {
     age_class[i, alive_years[(split_idx + 1):length(alive_years)]] <- 2
@@ -639,8 +645,8 @@ dev.off()
 ### non-clipped:
 # Recode age_class for plotting
 plot_matrix <- age_class
-plot_matrix[plot_matrix == 1] <- 1  # class 1 (0–13 y)
-plot_matrix[plot_matrix == 2] <- 2  # class 2 (14+ y)
+plot_matrix[plot_matrix == 1] <- 1  # class 1 (0–14 y)
+plot_matrix[plot_matrix == 2] <- 2  # class 2 (>14 y)
 plot_matrix[is.na(plot_matrix)] <- 0  # non-alive = white
 
 # Flip
@@ -666,14 +672,14 @@ axis(1, at = 1:ncol(plot_matrix), labels = colnames(plot_matrix), las = 2, cex.a
 axis(2, at = 1:nrow(plot_matrix), labels = rev(rownames(plot_matrix)), las = 1, cex.axis = 0.4)
 
 # Add legend
-legend("topright", legend = c("Not Alive", "Age 0–13", "Age 14+"),
+legend("topright", legend = c("Not Alive", "Age 0–14", "Age >14"),
        fill = plot_colors, cex = 0.8, border = NA)
 
 ### clipped:
 # Recode age_class_clipped for plotting
 plot_matrix <- age_class_clipped
-plot_matrix[plot_matrix == 1] <- 1  # class 1 (0–13 y)
-plot_matrix[plot_matrix == 2] <- 2  # class 2 (14+ y)
+plot_matrix[plot_matrix == 1] <- 1  # class 1 (0–14 y)
+plot_matrix[plot_matrix == 2] <- 2  # class 2 (>14 y)
 plot_matrix[is.na(plot_matrix)] <- 0  # non-alive = white
 
 # Flip
@@ -699,7 +705,7 @@ axis(1, at = 1:ncol(plot_matrix), labels = colnames(plot_matrix), las = 2, cex.a
 axis(2, at = 1:nrow(plot_matrix), labels = rev(rownames(plot_matrix)), las = 1, cex.axis = 0.4)
 
 # Add legend
-legend("topright", legend = c("Not Alive", "Age 0–13", "Age 14+"),
+legend("topright", legend = c("Not Alive", "Age 0–14", "Age >14"),
        fill = plot_colors, cex = 0.8, border = NA)
 
 ### ------------------------ NIMBLE CODE ------------------------ ###
@@ -948,7 +954,7 @@ phi1_df <- MCMCsummary(elk_model_final$samples, params = "phi_1") %>%
   mutate(
     time_index = as.numeric(gsub("phi_1\\[|\\]", "", param)),
     Year = 2000 + time_index,  # Adjust if needed
-    Class = "Young (0-13 years)"
+    Class = "Young (0-14 years)"
   )
 
 # Extract phi_2
@@ -958,7 +964,7 @@ phi2_df <- MCMCsummary(elk_model_final$samples, params = "phi_2") %>%
   mutate(
     time_index = as.numeric(gsub("phi_2\\[|\\]", "", param)),
     Year = 2000 + time_index,  # Adjust if needed
-    Class = "Old (14+ years)"
+    Class = "Old (>14 years)"
   )
 
 # Combine
@@ -969,12 +975,12 @@ ggplot(phi_combined, aes(x = Year, y = mean, color = Class, fill = Class)) +
   geom_ribbon(aes(ymin = `2.5%`, ymax = `97.5%`), alpha = 0.3, color = NA) +
   geom_line(linewidth = 1.2) +
   scale_color_manual(
-    values = c("Young (0-13 years)" = "#1f77b4",  # blue
-               "Old (14+ years)"    = "#d62728")  # red
+    values = c("Young (0-14 years)" = "#1f77b4",  # blue
+               "Old (>14 years)"    = "#d62728")  # red
   ) +
   scale_fill_manual(
-    values = c("Young (0-13 years)" = "#1f77b4",  # blue
-               "Old (14+ years)"    = "#d62728")  # red
+    values = c("Young (0-14 years)" = "#1f77b4",  # blue
+               "Old (>14 years)"    = "#d62728")  # red
   ) +
   scale_y_continuous(name = "Estimated Survival (φ)", limits = c(0, 1)) +
   scale_x_continuous(name = "Year", limits = c(2001, 2024)) +
