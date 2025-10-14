@@ -24,7 +24,7 @@ library(nimble)
 use_clip <- TRUE 
 
 ### --------------- DATA IMPORT ---------------- ###
-df <- read.csv('data/elk_survival_testData.csv')
+df <- read.csv('data/master/elk_survival_2025-10-14.csv')
 df <- df[which(complete.cases(df)==TRUE),] # drop rows with any NAs
 
 vhf <- read.csv('data/vhf.csv')
@@ -41,7 +41,8 @@ df_clean <- df %>%
     Last.Date.Status = trimws(Last.Date.Status),
     BirthYear = year(BirthDate)
   ) %>%
-  filter(!is.na(Capture.Date) & !is.na(Last.Date.Alive)) %>% # Remove incomplete entries
+  filter(!is.na(Capture.Date) & !is.na(Last.Date.Alive)) %>% 
+  filter(!is.na(BirthYear)) %>% # Remove incomplete entries
   arrange(ID, Capture.Date)
 
 # clean VHF and GPS data
@@ -567,7 +568,7 @@ elk_model_temporal_results <- MCMCsummary(elk_model_temporal$samples, params = '
 # extract phi estimates
 elk_temporal_phi <- elk_model_temporal_results %>%
   filter(grepl("phi\\[", rownames(elk_model_temporal_results))) %>%
-  mutate(Year = 2001:2024)  
+  mutate(Year = 2001:2025)  
 
 # plot temporal trend
 ggplot(elk_temporal_phi) + 
@@ -702,7 +703,7 @@ image(
 
 # Axis labels
 axis(1, at = 1:ncol(plot_matrix), labels = colnames(plot_matrix), las = 2, cex.axis = 0.7)
-axis(2, at = 1:nrow(plot_matrix), labels = rev(rownames(plot_matrix)), las = 1, cex.axis = 0.4)
+axis(2, at = 1:nrow(plot_matrix), labels = rownames(plot_matrix), las = 1, cex.axis = 0.4)
 
 # Add legend
 legend("topright", legend = c("Not Alive", "Age 0–14", "Age >14"),
@@ -843,14 +844,14 @@ elk_survival_final <- nimbleCode({
     for (t in (first_seen[i] + 1):n_years) {
       z[i, t] ~ dbern(
         z[i, t - 1] * (
-          is_class1[i, t - 1] * phi_1[t] +
-            is_class2[i, t - 1] * phi_2[t]
+          is_class1[i, t - 1] * phi_1[t-1] +
+            is_class2[i, t - 1] * phi_2[t-1]
         ) + 1e-10 * (1 - z[i, t - 1])
       )
     }
     
-    for (t in first_seen[i]:n_years) {
-      y[i, t] ~ dbern(p[t] * z[i, t])
+    for (t in (first_seen[i] + 1):n_years) {
+      y[i, t] ~ dbern(p[t-1] * z[i, t])
     }
   }
 })
