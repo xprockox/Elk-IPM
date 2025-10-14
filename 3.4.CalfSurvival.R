@@ -35,3 +35,10 @@ class_df <- unique(class_df)
 
 df <- left_join(counts, class_df)
 df <- left_join(df, elk_temporal_phi)
+
+df$cow_n_t <- df$total_n * df$percent_cows
+df$calf_n_t <- df$total_n * df$percent_calves
+df$cow_n_t1 <- lead(df$total_n * df$percent_cows)
+df$fem_calf_n_t <- df$calf_n_t * 0.5
+
+df$calf_phi <- (df$cow_n_t1 - (df$cow_n_t * df$cow_phi))/df$fem_calf_n_t
