@@ -180,7 +180,7 @@ modeling_df[modeling_df$Year==1995, 'Percent.N.old'] <- sum(stage_dists95_old$Ag
 
 ############################################################################################
 # clean up workspace and write modeling dataframe to .csv
-write_csv(modeling_df, 'data/intermediate/modeling_df.csv')
+write_csv(modeling_df, 'data/intermediate/lainie_df.csv')
 
 rm(ad_surv, all_elk, ann_ad_surv, calf_haz, calf_plot_df, calf_surv, calf_surv_clean,
    df, fec, harvest, harvest_long, N1995_dems, obs_elk_CIs, obs_elk_inNout, obs_elk_N, 

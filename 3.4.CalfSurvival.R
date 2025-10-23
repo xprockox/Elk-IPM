@@ -1,44 +1,87 @@
+### Calf Survival and Reproduction
+### Last updated: Oct. 20, 2025
+### Contact: xprockox@gmail.com
 
+### --------------- PACKAGES ---------------- ###
 
-elk_temporal_phi <- read.csv('data/intermediate/temp_phi_noStages.csv')
-class_df <- read.csv('data/master/Classification_1995_to_2015.csv')
+library(dplyr)
+library(lubridate)
+
+### --------------- DATA IMPORT ---------------- ###
+
+classification <- read.csv('data/master/classification_2025-10-17.csv')
 counts <- read.csv('data/master/corrected_elk counts_09Jul2023.csv')
+preg <- read.csv('data/master/pregnancy_collars.csv')
+preg_harvest <- read.csv('data/master/pregnancy_harvest.csv')
 
-elk_temporal_phi <- elk_temporal_phi %>%
-  rename(cow_phi = mean,
-         cow_phi_lower95ci = `X2.5.`,
-         cow_phi_upper95ci = `X97.5.`) %>%
-  select(-X)
+### --------------- DATA MANAGEMENT ---------------- ###
+
+classification <- classification %>%
+  rename(year = Year,
+         survey_date = Survey.Date,
+         total_elk = Total..Elk.Classified,
+         cows = X.Cows,
+         calves = X.Calves,
+         calf_per100cow = X.Calves..100.Cows,
+         spike_per100cow = X.Yearling.bulls..100.cows,
+         btb_per100cow = X.BTB..100.cows,
+         bull_per100cow = X.Bulls.100.cows)
 
 counts <- counts %>%
-  rename(Year = `winter..Jan..`,
-         total_n = mean,
-         total_n_lower95ci = `lwr.CL`,
-         total_n_upper95ci = `upr.CL`) %>%
-  select(Year, total_n, total_n_lower95ci, total_n_upper95ci)
+  rename(year = winter..Jan..,
+         n_total = mean, 
+         n_LCI = lwr.CL,
+         n_UCI = upr.CL) %>%
+  select(year, n_total, n_LCI, n_UCI)
 
-class_df <- class_df %>%
-  mutate(percent_cows = Adult.Females/Total.Classified,
-         percent_calves = Calves/Total.Classified,
-         percent_bulls = Total.Bulls/Total.Classified,
-         percent_spikes = Spikes/Total.Classified) %>%
-  group_by(Year) %>%
-  mutate(percent_cows = mean(percent_cows),
-         percent_calves = mean(percent_calves),
-         percent_bulls = mean(percent_bulls),
-         percent_spikes = mean(percent_spikes),
-         Total.Classified = sum(Total.Classified)) %>%
-  select(Year, Total.Classified, percent_cows, percent_calves, percent_bulls, percent_spikes) %>%
-  ungroup()
+df <- left_join(classification, counts)
 
-class_df <- unique(class_df)
+df$calf_cow_ratio <- df$calf_per100cow / 100
+df$spike_cow_ratio <- df$spike_per100cow / 100
+df$btb_cow_ratio <- df$btb_per100cow/ 100
+df$bull_cow_ratio <- df$bull_per100cow / 100
 
-df <- left_join(counts, class_df)
-df <- left_join(df, elk_temporal_phi)
+df$total_elk <- as.numeric(df$total_elk)
 
-df$cow_n_t <- df$total_n * df$percent_cows
-df$calf_n_t <- df$total_n * df$percent_calves
-df$cow_n_t1 <- lead(df$total_n * df$percent_cows)
-df$fem_calf_n_t <- df$calf_n_t * 0.5
+df$percent_cows <- df$cows / df$total_elk
 
-df$calf_phi <- (df$cow_n_t1 - (df$cow_n_t * df$cow_phi))/df$fem_calf_n_t
+df$n_cows <- round(df$n_total * df$percent_cows)
+df$n_calves <- round(df$n_total * df$percent_cows * df$calf_cow_ratio)
+df$n_spikes <- round(df$n_total * df$percent_cows * df$spike_cow_ratio)
+df$n_btb <- round(df$n_total * df$percent_cows * df$btb_cow_ratio)
+df$n_bulls <- round(df$n_total * df$percent_cows * df$bull_cow_ratio)
+
+# incorporating park preg data from collared indivs
+preg <- preg %>%
+  mutate(capt_year = year(as.POSIXct(strptime(Capture.Date, format = '%d-%b-%y')))) %>%
+  group_by(capt_year) %>%
+  count(Pregnant)
+
+preg <- preg[preg$Pregnant=='yes' | preg$Pregnant=='no',]
+
+preg <- preg %>%
+  group_by(capt_year) %>%
+  mutate(num_capt = sum(n),
+         percent_preg = n / num_capt) %>%
+  rename(year = capt_year)
+
+preg <- preg[preg$Pregnant=='yes',]
+
+df <- left_join(df, preg)
+
+df$expected_calves <- df$n_cows * df$percent_preg
+
+df$calf_surv <- df$n_calves / df$expected_calves
+
+# incorporating FWP preg data from harvested elk during antlerless harvest years (1997-2009)
+preg_harvest <- preg_harvest %>%
+  select(ID, harvestyear, ageatharvest, pregnant_code, winter_end) %>%
+  group_by(harvestyear) %>%
+  count(pregnant_code) %>%
+  mutate(num_harv = sum(n),
+         percent_preg = n / num_harv) %>%
+  rename(year = harvestyear)
+
+preg_harvest <- preg_harvest[preg_harvest$pregnant_code==1,]
+
+df <- left_join(df, preg_harvest, by='year')
