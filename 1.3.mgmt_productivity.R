@@ -1,5 +1,5 @@
-### Calf Survival and Reproduction
-### Last updated: Oct. 20, 2025
+### Calf Survival and Reproduction Data Management
+### Last updated: Oct. 27, 2025
 ### Contact: xprockox@gmail.com
 
 ### --------------- PACKAGES ---------------- ###
@@ -30,16 +30,16 @@ classification <- classification %>%
 counts <- counts %>%
   rename(year = winter..Jan..,
          n_total = mean, 
-         n_LCI = lwr.CL,
-         n_UCI = upr.CL) %>%
-  select(year, n_total, n_LCI, n_UCI)
+         n_total_LCI = lwr.CL,
+         n_total_UCI = upr.CL) %>%
+  select(year, n_total, n_total_LCI, n_total_UCI)
 
 df <- left_join(classification, counts)
 
-df$calf_cow_ratio <- df$calf_per100cow / 100
-df$spike_cow_ratio <- df$spike_per100cow / 100
-df$btb_cow_ratio <- df$btb_per100cow/ 100
-df$bull_cow_ratio <- df$bull_per100cow / 100
+df$calf_cow_ratio <- round(df$calf_per100cow / 100, 2)
+df$spike_cow_ratio <- round(df$spike_per100cow / 100, 2)
+df$btb_cow_ratio <- round(df$btb_per100cow/ 100, 2)
+df$bull_cow_ratio <- round(df$bull_per100cow / 100, 2)
 
 df$total_elk <- as.numeric(df$total_elk)
 
@@ -69,10 +69,6 @@ preg <- preg[preg$Pregnant=='yes',]
 
 df <- left_join(df, preg)
 
-df$expected_calves <- df$n_cows * df$percent_preg
-
-df$calf_surv <- df$n_calves / df$expected_calves
-
 # incorporating FWP preg data from harvested elk during antlerless harvest years (1997-2009)
 preg_harvest <- preg_harvest %>%
   select(ID, harvestyear, ageatharvest, pregnant_code, winter_end) %>%
@@ -85,3 +81,22 @@ preg_harvest <- preg_harvest %>%
 preg_harvest <- preg_harvest[preg_harvest$pregnant_code==1,]
 
 df <- left_join(df, preg_harvest, by='year')
+
+# merges the two data sources of pregnancy (capture and harvest), 
+# including harvest estimate only when the capture estimate does not exist
+df <- df %>%
+  rename(total_elk_classified = total_elk) %>%
+  mutate(percent_preg = round(coalesce(percent_preg.x, percent_preg.y), 2),
+         expected_calves = round(n_cows * percent_preg, 2),
+         calf_surv = round(n_calves/expected_calves, 2)) %>%
+  select(-Pregnant, -survey_date, -Method, 
+         -total_elk_classified, -cows, -calves,
+         -calf_per100cow, -spike_per100cow, -btb_per100cow, -bull_per100cow,
+         -n.x, -num_capt, -pregnant_code, 
+         -n.y, -num_harv, -percent_preg.x, -percent_preg.y)
+
+### --------------- DATA WRITING ---------------- ###
+stop(
+  'Are you sure you want to proceed? The following lines will overwrite data.'
+)
+write.csv(df, 'data/intermediate/productivity.csv')
