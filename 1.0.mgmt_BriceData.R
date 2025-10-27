@@ -1,5 +1,5 @@
 ### Elk Integrated Population Model
-### Data management script
+### Data management script for Lainie's data
 ### Last updated: June 2, 2025
 ### Contact: xprockox@gmail.com
 
@@ -9,17 +9,17 @@ library(tidyverse)
 
 ############################################################################################
 ### data loading
-ad_surv <- read.csv('data/master/AdultSurvival_Long.csv')
-all_elk <- read.csv('data/master/AllElk.csv')
-ann_ad_surv <- read.csv('data/master/Annual_AdultSurvival.csv')
-calf_haz <- read.csv('data/master/Calf_Hazards_05-07-25.csv')
-calf_surv <- read.csv('data/master/CalfSurvival_SE.csv')
-harvest <- read.csv('data/master/Harvest.csv')
-N1995_dems <- read.csv('data/master/N1995_ElkCountsByAge.csv')
-obs_elk_CIs <- read.csv('data/master/Observed_Elk_95CI.csv')
-obs_elk_N <- read.csv('data/master/Observed_Elk_Abundance.csv')
-obs_elk_inNout <- read.csv('data/master/Observed_Elk_InsideOutside.csv')
-preg <- read.csv('data/master/Pregnancy.csv')
+ad_surv <- read.csv('data/master/Lainie/AdultSurvival_Long.csv')
+all_elk <- read.csv('data/master/Lainie/AllElk.csv')
+ann_ad_surv <- read.csv('data/master/Lainie/Annual_AdultSurvival.csv')
+calf_haz <- read.csv('data/master/Lainie/Calf_Hazards_05-07-25.csv')
+calf_surv <- read.csv('data/master/Lainie/CalfSurvival_SE.csv')
+harvest <- read.csv('data/master/Lainie/Harvest.csv')
+N1995_dems <- read.csv('data/master/Lainie/N1995_ElkCountsByAge.csv')
+obs_elk_CIs <- read.csv('data/master/Lainie/Observed_Elk_95CI.csv')
+obs_elk_N <- read.csv('data/master/Lainie/Observed_Elk_Abundance.csv')
+obs_elk_inNout <- read.csv('data/master/Lainie/Observed_Elk_InsideOutside.csv')
+preg <- read.csv('data/master/Lainie/Pregnancy.csv')
 
 ############################################################################################
 ### visualization
