@@ -1,6 +1,6 @@
-### Elk Integrated Population Model
+### Elk Abundance - State-Space Model
 ### Analysis script
-### Last updated: June 2, 2025
+### Last updated: Oct. 27, 2025
 ### Contact: xprockox@gmail.com
 
 ############################################################################################
@@ -9,11 +9,8 @@ library(nimble)
 library(MCMCvis)
 
 ############################################################################################
-### data loading
-modeling_df <- read.csv('data/intermediate/modeling_df.csv')
-
-# let's try removing the last five years because they are all NAs
-modeling_df <- modeling_df[1:26,]
+### data import
+dat <- read.csv('data/intermediate/abundanceEstimates_stages.csv')
 
 ############################################################################################
 ### model structure
