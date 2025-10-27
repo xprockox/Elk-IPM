@@ -2,19 +2,25 @@
 ### Last updated: Oct. 27, 2025
 ### Contact: xprockox@gmail.com
 
-### --------------- PACKAGES ---------------- ###
+############################################################
+### ------------------- PACKAGES ----------------------- ###
+############################################################
 
 library(dplyr)
 library(lubridate)
 
-### --------------- DATA IMPORT ---------------- ###
+############################################################
+### ------------------ DATA IMPORT --------------------- ###
+############################################################
 
-classification <- read.csv('data/master/classification_2025-10-17.csv')
-counts <- read.csv('data/master/corrected_elk counts_09Jul2023.csv')
-preg <- read.csv('data/master/pregnancy_collars.csv')
-preg_harvest <- read.csv('data/master/pregnancy_harvest.csv')
+classification <- read.csv('data/master/elk_classification_2025-10-17.csv')
+counts <- read.csv('data/master/elk_counts_2023-07-09.csv')
+preg <- read.csv('data/master/elk_pregnancy_collars_2025-07-18.csv')
+preg_harvest <- read.csv('data/master/elk_pregnancy_harvest_2015-03-24.csv')
 
-### --------------- DATA MANAGEMENT ---------------- ###
+############################################################
+### ---------------- DATA MANAGEMENT ------------------- ###
+############################################################
 
 classification <- classification %>%
   rename(year = Year,
@@ -95,8 +101,12 @@ df <- df %>%
          -n.x, -num_capt, -pregnant_code, 
          -n.y, -num_harv, -percent_preg.x, -percent_preg.y)
 
-### --------------- DATA WRITING ---------------- ###
-stop(
-  'Are you sure you want to proceed? The following lines will overwrite data.'
-)
+############################################################
+### ------------------ DATA WRITING -------------------- ###
+############################################################
+
+stop('[1.3.mgmt_productivity.R] \n
+All required matrices constructed. Code stopped to prevent overwriting data.\n
+Continue running code beyond this line to overwrite data exports.')
+
 write.csv(df, 'data/intermediate/productivity.csv')

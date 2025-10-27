@@ -2,17 +2,22 @@
 ### Last updated: Oct. 27, 2025
 ### Contact: xprockox@gmail.com
 
-############################################################################################
-### packages
+############################################################
+### ------------------ PACKAGES ------------------------ ###
+############################################################
+
 library(tidyverse)
 
-############################################################################################
-### data loading 
-abundances <- read.csv('data/master/corrected_elk counts_09Jul2023.csv')
-classification <- read.csv('data/master/classification_2025-10-17.csv')
+############################################################
+### ------------------ DATA LOADING -------------------- ###
+############################################################
 
-############################################################################################
-### management 
+abundances <- read.csv('data/master/elk_counts_2023-07-09.csv')
+classification <- read.csv('data/master/elk_classification_2025-10-17.csv')
+
+############################################################
+### ------------------- MANAGEMENT --------------------- ###
+############################################################
 
 abundances <- abundances %>%
   select(winter..Jan.., mean, lwr.CL, upr.CL) %>%
@@ -55,11 +60,12 @@ abundances <- abundances %>%
          n_bull = n_total * percent_bull,
          sigma_tot_log = round((log(n_total_U95) - log(n_total_L95)) / (2*1.96),2))
 
-############################################################################################
-### write to .csv 
-stop(
-  'The following with overwrite data, are you sure you want to proceed?'
-)
+############################################################
+### ------------------ WRITE DATA ---------------------- ###
+############################################################
+
+stop('[1.2.mgmt_abundances.R] \n
+All required matrices constructed. Code stopped to prevent overwriting data.\n
+Continue running code beyond this line to overwrite data exports.')
 
 write.csv(abundances, 'data/intermediate/abundanceEstimates_stages.csv')
-############################################################################################

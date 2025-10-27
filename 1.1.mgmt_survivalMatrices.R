@@ -2,23 +2,27 @@
 ### Last updated: Oct. 27, 2025
 ### Contact: xprockox@gmail.com
 
-### --------------- PACKAGES AND SET-UP ---------------- ###
+############################################################
+### -------------------- PACKAGES  --------------------- ###
+############################################################
 library(dplyr)
 library(lubridate)
 library(tidyr)
 library(tidyverse)
-library(MCMCvis)
 library(ggplot2)
-library(nimble)
 
-### --------------- DATA IMPORT ---------------- ###
+############################################################
+### ------------------- DATA IMPORT -------------------- ###
+############################################################
 df <- read.csv('data/master/elk_survival_2025-10-14.csv')
 df <- df[which(complete.cases(df)==TRUE),] # drop rows with any NAs
 
-vhf <- read.csv('data/master/vhf.csv')
+vhf <- read.csv('data/master/elk_vhf_2025-07-18.csv')
 gps <- read.csv('data/master/elk_GPS_2025-09-03.csv')
 
-### --------------- DATA MANAGEMENT ---------------- ###
+############################################################
+### ----------------- DATA MANAGEMENT ------------------ ###
+############################################################
 
 # clean df
 df_clean <- df %>%
@@ -74,7 +78,10 @@ years <- min_year:max_year
 n_years <- length(years)
 n_indiv <- nrow(df_clean)
 
-### --------------- MATRIX CONSTRUCTION (OBS. & LATENT STATES) ---------------- ###
+############################################################
+### ---------------- MATRIX CONSTRUCTION --------------- ###
+### -------------- (OBS. & LATENT STATES) -------------- ###
+############################################################
 
 # Initialize matrices
 y <- matrix(0, nrow = n_indiv, ncol = n_years) # observations
@@ -194,7 +201,9 @@ z_clipped <- z_clipped[,19:ncol(z_clipped)]
 # now do the same for the observation matrix
 y_clipped <- y[,19:ncol(y)]
 
-### --------------- VISUALIZE MATRICES ---------------- ###
+############################################################
+### ---------------- VISUALIZE MATRICES ---------------- ###
+############################################################
 
 ### first observations:
 # Flip y so individual 1 is at the top
@@ -252,19 +261,7 @@ axis(2, at = 1:nrow(z_flip), labels = rownames(z_flip), las = 1, cex.axis = 0.4)
 
 rm(z_flip, y_flip)
 
-#
-##
-###
-####
-#####
-######
-### ------- then plot latent states CLIPPED:
-######
-#####
-####
-###
-##
-#
+# then plot latent states CLIPPED:
 
 ### start with y_clipped
 # Flip y_clipped so that individual 1 is at the top
@@ -310,7 +307,9 @@ axis(2, at = 1:nrow(z_clipped_flip), labels = rownames(z_clipped_flip), las = 1,
 
 rm(z_clipped_flip, y_clipped_flip)
 
-### --------------- FIRST SEEN VECTOR ---------------- ###
+############################################################
+### ---------------- FIRST SEEN VECTOR ----------------- ###
+############################################################
 
 # finally, we need a vector of when each individual was first seen
 first_seen <- apply(y, 1, function(row) {
@@ -326,10 +325,9 @@ first_seen_clipped <- apply(y_clipped, 1, function(row) {
 first_seen_clipped <- as.integer(first_seen_clipped)
 
 
-#########################################################################
-# incorporating stage-specific survival, but not allowing for temporally varying rates
-
-### ------------------------ BUILD STAGE MATRIX ------------------------ ###
+############################################################
+### --------------- BUILD STAGE MATRIX ----------------- ###
+############################################################
 
 # Copy z and mask non-alive values
 age_class <- z
@@ -375,7 +373,9 @@ is_class2_clipped <- array(0, dim = c(nrow(age_class_clipped), ncol(age_class_cl
 is_class1_clipped[age_class_clipped == 1] <- 1
 is_class2_clipped[age_class_clipped == 2] <- 1
 
-### ------------------------ VISUALIZE STAGE MATRIX ------------------------ ###
+############################################################
+### ------------- VISUALIZE STAGE MATRIX --------------- ###
+############################################################
 
 # reset the visualizing pane (par settings from MCMC plots still active)
 dev.off()
@@ -446,7 +446,10 @@ axis(2, at = 1:nrow(plot_matrix), labels = rownames(plot_matrix), las = 1, cex.a
 legend("topright", legend = c("Not Alive", "Age 0–14", "Age >14"),
        fill = plot_colors, cex = 0.8, border = NA)
 
-###########################################################################################
+############################################################
+### -------------------- DATA EXPORT ------------------  ###
+############################################################
+
 ### keep the following for the model, but remove everything else:
 # y
 # y_clipped
@@ -467,8 +470,9 @@ rm(list = setdiff(ls(), c(
   "is_class2_clipped"
 )))
 
-stop('All required matrices constructed. Code stopped (line 482) to prevent rewriting data.\n
-     Continue running code beyond line 482 to rewrite data exports.')
+stop('[1.1.mgmt_survivalMatrices.R] \n
+All required matrices constructed. Code stopped to prevent overwriting data.\n
+Continue running code beyond this line to overwrite data exports.')
 
 save(y, y_clipped,
      first_seen, first_seen_clipped,
