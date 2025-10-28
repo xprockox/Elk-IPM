@@ -386,9 +386,9 @@ elk_model_final <- nimbleMCMC(
   inits = inits,
   monitors = params,
   nchains = 3,
-  niter = 10000,
-  nburnin = 3000,
-  thin = 1,
+  niter = 200000,
+  nburnin = 50000,
+  thin = 3,
   summary = TRUE
 )
 
