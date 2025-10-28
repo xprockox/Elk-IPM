@@ -14,6 +14,7 @@ library(tidyverse)
 
 abundances <- read.csv('data/master/elk_counts_2023-07-09.csv')
 classification <- read.csv('data/master/elk_classification_2025-10-17.csv')
+harvest <- read.csv('data/master/elk_harvest_2021.csv')
 
 ############################################################
 ### ------------------- MANAGEMENT --------------------- ###
@@ -59,6 +60,34 @@ abundances <- abundances %>%
          n_btb = n_total * percent_btb,
          n_bull = n_total * percent_bull,
          sigma_tot_log = round((log(n_total_U95) - log(n_total_L95)) / (2*1.96),2))
+
+harvest <- harvest %>%
+  rename(age = 1) %>%
+  pivot_longer(
+    cols = -age,
+    names_to = "year_raw",
+    values_to = "harvest"
+  ) %>%
+  mutate(
+    year = parse_number(year_raw),
+    group = case_when(
+      age == 1 ~ "age1",
+      age >= 2 & age <= 13 ~ "age2_13",
+      age >= 14 ~ "age14plus"
+    )
+  ) %>%
+  group_by(year, group) %>%
+  summarise(n = sum(harvest, na.rm = TRUE), .groups = "drop_last") %>%
+  mutate(total_year = sum(n), prop = n / total_year) %>%
+  ungroup() %>%
+  select(year, group, prop) %>%
+  pivot_wider(names_from = group, values_from = prop) %>%
+  arrange(year) %>%
+  rename(prop_age1 = age1,
+         prop_age2_13 = age2_13,
+         prop_age14plus = age14plus)
+
+abundances <- left_join(abundances, harvest)
 
 ############################################################
 ### ------------------ WRITE DATA ---------------------- ###
