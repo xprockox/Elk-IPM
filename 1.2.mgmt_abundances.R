@@ -71,9 +71,8 @@ harvest <- harvest %>%
   mutate(
     year = parse_number(year_raw),
     group = case_when(
-      age == 1 ~ "age1",
-      age >= 2 & age <= 13 ~ "age2_13",
-      age >= 14 ~ "age14plus"
+      age >= 1 & age <= 13 ~ "young_ad",
+      age >= 14 ~ "old_ad"
     )
   ) %>%
   group_by(year, group) %>%
@@ -83,16 +82,14 @@ harvest <- harvest %>%
   select(year, group, prop) %>%
   pivot_wider(names_from = group, values_from = prop) %>%
   arrange(year) %>%
-  rename(prop_age1 = age1,
-         prop_age2_13 = age2_13,
-         prop_age14plus = age14plus)
+  rename(prop_young_ad = young_ad,
+         prop_old_ad = old_ad)
 
 abundances <- left_join(abundances, harvest)
 
 abundances <- abundances %>%
-  mutate(n_cow_yearling = round(n_cow * prop_age1),
-         n_cow_youngadult = round(n_cow * prop_age2_13),
-         n_cow_oldadult = round(n_cow * prop_age14plus))
+  mutate(n_cow_youngadult = round(n_cow * prop_young_ad),
+         n_cow_oldadult = round(n_cow * prop_old_ad))
 
 ############################################################
 ### ------------------ WRITE DATA ---------------------- ###
