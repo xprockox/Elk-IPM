@@ -54,11 +54,11 @@ class_percentages <- classification %>%
 abundances <- left_join(abundances, class_percentages)
 
 abundances <- abundances %>%
-  mutate(n_cow = n_total * percent_cow,
-         n_calf = n_total * percent_calf,
-         n_spike = n_total * percent_spike,
-         n_btb = n_total * percent_btb,
-         n_bull = n_total * percent_bull,
+  mutate(n_cow = round(n_total * percent_cow),
+         n_calf = round(n_total * percent_calf),
+         n_spike = round(n_total * percent_spike),
+         n_btb = round(n_total * percent_btb),
+         n_bull = round(n_total * percent_bull),
          sigma_tot_log = round((log(n_total_U95) - log(n_total_L95)) / (2*1.96),2))
 
 harvest <- harvest %>%
