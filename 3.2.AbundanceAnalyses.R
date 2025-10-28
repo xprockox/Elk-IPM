@@ -25,32 +25,68 @@ dat <- read.csv('data/intermediate/abundanceEstimates_stages.csv')
 # first specify study duration
 n_years <- length(dat)
 
-# --- NIMBLE MODEL CODE ---
 elk_code <- nimbleCode({
   
-  ### Priors (vital rates)
-  # Survival (probabilities)
-  s_c ~ dbeta(1, 1) # calf survival to next year (becomes Young)
-  s_y ~ dbeta(1, 1) # young adult survival
-  s_o ~ dbeta(1, 1) # old adult survival
+  ## -----------------------------
+  ## Priors for YEAR-VARYING rates
+  ## -----------------------------
+  # Survival / progression: logit link
+  alpha_sc ~ dnorm(0, 0.01)    # calf survival intercept (logit scale)
+  alpha_sy ~ dnorm(0, 0.01)    # young survival intercept
+  alpha_so ~ dnorm(0, 0.01)    # old survival intercept
+  alpha_gy ~ dnorm(0, 0.01)    # young->old progression intercept
   
-  # Progression from Young -> Old (conditional on survival)
-  g_y ~ dbeta(1, 1) # fraction of surviving young that age into old class
+  sigma_sc ~ dunif(1e-3, 2)
+  sigma_sy ~ dunif(1e-3, 2)
+  sigma_so ~ dunif(1e-3, 2)
+  sigma_gy ~ dunif(1e-3, 2)
+  tau_sc <- 1 / (sigma_sc^2)
+  tau_sy <- 1 / (sigma_sy^2)
+  tau_so <- 1 / (sigma_so^2)
+  tau_gy <- 1 / (sigma_gy^2)
   
-  # Fecundity (calves produced per female/individual per year)
-  # If you have sex-specific adults, use female-only or add a sex ratio.
-  f_y ~ dgamma(1, 0.1) # calves per Young
-  f_o ~ dgamma(1, 0.1) # calves per Old
+  # Fecundity: log link
+  alpha_fy ~ dnorm(0, 0.01)    # fecundity from Young (log scale)
+  alpha_fo ~ dnorm(0, 0.01)    # fecundity from Old (log scale)
   
-  ### Observation error (lognormal, one sd per stage)
-  sigma_obs_c ~ dunif(0, 2)
-  sigma_obs_y ~ dunif(0, 2)
-  sigma_obs_o ~ dunif(0, 2)
+  sigma_fy ~ dunif(1e-3, 2)
+  sigma_fo ~ dunif(1e-3, 2)
+  tau_fy <- 1 / (sigma_fy^2)
+  tau_fo <- 1 / (sigma_fo^2)
+  
+  # Year effects and transformed rates (t = 1..n_years-1: drive transitions to t+1)
+  for (t in 1:(n_years-1)) {
+    # random year effects
+    eps_sc[t] ~ dnorm(0, tau_sc)
+    eps_sy[t] ~ dnorm(0, tau_sy)
+    eps_so[t] ~ dnorm(0, tau_so)
+    eps_gy[t] ~ dnorm(0, tau_gy)
+    eps_fy[t] ~ dnorm(0, tau_fy)
+    eps_fo[t] ~ dnorm(0, tau_fo)
+    
+    # transformed yearly rates
+    logit(s_c[t]) <- alpha_sc + eps_sc[t]
+    logit(s_y[t]) <- alpha_sy + eps_sy[t]
+    logit(s_o[t]) <- alpha_so + eps_so[t]
+    logit(g_y[t]) <- alpha_gy + eps_gy[t]
+    
+    log(f_y[t]) <- alpha_fy + eps_fy[t]
+    log(f_o[t]) <- alpha_fo + eps_fo[t]
+  }
+  
+  ## -----------------------------
+  ## Observation error (constant)
+  ## -----------------------------
+  sigma_obs_c ~ dunif(1e-3, 2)
+  sigma_obs_y ~ dunif(1e-3, 2)
+  sigma_obs_o ~ dunif(1e-3, 2)
   tau_obs_c <- 1 / (sigma_obs_c^2)
   tau_obs_y <- 1 / (sigma_obs_y^2)
   tau_obs_o <- 1 / (sigma_obs_o^2)
   
-  ### Initial abundance priors (Poisson with diffuse gamma hyperpriors)
+  ## -----------------------------
+  ## Initial abundances (t = 1)
+  ## -----------------------------
   lambda_init_c ~ dgamma(0.001, 0.001)
   lambda_init_y ~ dgamma(0.001, 0.001)
   lambda_init_o ~ dgamma(0.001, 0.001)
@@ -59,35 +95,38 @@ elk_code <- nimbleCode({
   N_y[1] ~ dpois(lambda_init_y)
   N_o[1] ~ dpois(lambda_init_o)
   
-  # Observation model at t = 1
-  obs_calf[1] ~ dlnorm(log(N_c[1] + 1e-6), tau_obs_c)
+  # Observation at t = 1
+  obs_calf[1]  ~ dlnorm(log(N_c[1] + 1e-6), tau_obs_c)
   obs_young[1] ~ dlnorm(log(N_y[1] + 1e-6), tau_obs_y)
-  obs_old[1] ~ dlnorm(log(N_o[1] + 1e-6), tau_obs_o)
+  obs_old[1]   ~ dlnorm(log(N_o[1] + 1e-6), tau_obs_o)
   
-  ### State process + observation for t + 1, 2, 3 ... length(n_years)
+  ## -----------------------------
+  ## State process + observations
+  ## -----------------------------
   for (t in 1:(n_years-1)) {
-
-    # Calves at t+1 are produced by young and old at t
-    mu_c[t+1] <- f_y * N_y[t] + f_o * N_o[t]
     
-    # Young at t+1 come from (1) surviving calves, and (2) surviving young that DON'T progress
-    mu_y[t+1] <- s_c * N_c[t] + s_y * (1 - g_y) * N_y[t]
+    # Expected next-year abundances
+    mu_c[t+1] <- f_y[t]       * N_y[t] +
+      f_o[t]       * N_o[t]
     
-    # Old at t+1 come from (1) progressing surviving young, (2) surviving old
-    mu_o[t+1] <- s_y * g_y * N_y[t] + s_o * N_o[t]
+    mu_y[t+1] <- s_c[t]       * N_c[t] +
+      s_y[t] * (1 - g_y[t]) * N_y[t]
     
-    # Process stochasticity (Poisson stage dynamics)
-    N_c[t+1] ~ dpois(mu_c[t+1] + 1e-9)
-    N_y[t+1] ~ dpois(mu_y[t+1] + 1e-9)
-    N_o[t+1] ~ dpois(mu_o[t+1] + 1e-9)
+    mu_o[t+1] <- s_y[t] * g_y[t] * N_y[t] +
+      s_o[t]          * N_o[t]
+    
+    # Process variability (Poisson) with tiny positive floors
+    N_c[t+1] ~ dpois(max(1e-9, mu_c[t+1]))
+    N_y[t+1] ~ dpois(max(1e-9, mu_y[t+1]))
+    N_o[t+1] ~ dpois(max(1e-9, mu_o[t+1]))
     
     # Observation model (lognormal around true abundance)
-    obs_calf[t+1] ~ dlnorm(log(N_c[t+1] + 1e-6), tau_obs_c)
+    obs_calf[t+1]  ~ dlnorm(log(N_c[t+1] + 1e-6), tau_obs_c)
     obs_young[t+1] ~ dlnorm(log(N_y[t+1] + 1e-6), tau_obs_y)
-    obs_old[t+1] ~ dlnorm(log(N_o[t+1] + 1e-6), tau_obs_o)
+    obs_old[t+1]   ~ dlnorm(log(N_o[t+1] + 1e-6), tau_obs_o)
   }
   
-  # Derived total population (females only)
+  # Derived total (for every observed year)
   for (t in 1:n_years) {
     N_tot[t] <- N_c[t] + N_y[t] + N_o[t]
   }
@@ -95,71 +134,114 @@ elk_code <- nimbleCode({
 
 ############################################################################################
 ### data and constants and params, etc.
+## -----------------------------
+## constants
+## -----------------------------
+elk_constants <- list(n_years = n_years)  # n_years = length of your obs vectors
 
-# constants
-elk_constants <- list(n_years = n_years)
-
-# data
+## -----------------------------
+## data  (vectors length n_years; NAs allowed)
+## -----------------------------
 elk_data <- list(
   obs_calf  = dat$n_calf,
   obs_young = dat$n_cow_youngadult,
   obs_old   = dat$n_cow_oldadult
 )
 
-# inits
+## -----------------------------
+## inits  (compatible with time-varying rates)
+## -----------------------------
+ilogit <- function(x) 1/(1+exp(-x))
+
 make_inits <- function() {
-  init_Nc <- ifelse(is.na(dat$n_calf),  
-                    pmax(1, round(mean(dat$n_calf, na.rm = TRUE))),  
+  # seed latent states near observations
+  init_Nc <- ifelse(is.na(dat$n_calf),
+                    pmax(1, round(mean(dat$n_calf, na.rm = TRUE))),
                     pmax(1, round(dat$n_calf)))
-  init_Ny <- ifelse(is.na(dat$n_cow_youngadult), 
-                    pmax(1, round(mean(dat$n_cow_youngadult, na.rm = TRUE))), 
+  init_Ny <- ifelse(is.na(dat$n_cow_youngadult),
+                    pmax(1, round(mean(dat$n_cow_youngadult, na.rm = TRUE))),
                     pmax(1, round(dat$n_cow_youngadult)))
-  init_No <- ifelse(is.na(dat$n_cow_oldadult),   
-                    pmax(1, round(mean(dat$n_cow_oldadult, na.rm = TRUE))),   
+  init_No <- ifelse(is.na(dat$n_cow_oldadult),
+                    pmax(1, round(mean(dat$n_cow_oldadult, na.rm = TRUE))),
                     pmax(1, round(dat$n_cow_oldadult)))
   
   list(
-    s_c = 0.6, s_y = 0.9, s_o = 0.85,
-    g_y = 0.15,
-    f_y = 0.2, f_o = 0.3,
-    sigma_obs_c = 0.3, sigma_obs_y = 0.3, sigma_obs_o = 0.3,
+    # intercepts on link scales
+    alpha_sc = qlogis(0.60),
+    alpha_sy = qlogis(0.90),
+    alpha_so = qlogis(0.85),
+    alpha_gy = qlogis(0.15),
+    alpha_fy = log(0.20),
+    alpha_fo = log(0.30),
+    
+    # SDs for year random effects (bounded away from 0)
+    sigma_sc = 0.20, sigma_sy = 0.10, sigma_so = 0.10,
+    sigma_gy = 0.10, sigma_fy = 0.30, sigma_fo = 0.30,
+    
+    # year effects (length n_years-1) start at 0
+    eps_sc = rep(0, n_years - 1),
+    eps_sy = rep(0, n_years - 1),
+    eps_so = rep(0, n_years - 1),
+    eps_gy = rep(0, n_years - 1),
+    eps_fy = rep(0, n_years - 1),
+    eps_fo = rep(0, n_years - 1),
+    
+    # observation SDs
+    sigma_obs_c = 0.30, sigma_obs_y = 0.30, sigma_obs_o = 0.30,
+    
+    # initial abundances
     lambda_init_c = max(1, round(init_Nc[1])),
     lambda_init_y = max(1, round(init_Ny[1])),
     lambda_init_o = max(1, round(init_No[1])),
+    
     N_c = pmax(1, init_Nc),
     N_y = pmax(1, init_Ny),
     N_o = pmax(1, init_No)
   )
 }
 
-# params
-params <- c("s_c","s_y","s_o","g_y","f_y","f_o",
-            "sigma_obs_c","sigma_obs_y","sigma_obs_o",
-            "N_c","N_y","N_o","N_tot")
-
-# set seed
-set.seed(17)
-
-# set model details
-nc = 3
-ni = 1000000
-nb = 200000
-
-# run MCMC
-elk_mod1 <- nimbleMCMC(
-  code = elk_code,
-  data = elk_data,
-  constants = elk_constants,
-  inits = make_inits,
-  monitors = params,
-  nchains = nc,
-  niter = ni,
-  nburnin = nb,
-  summary=TRUE
+## -----------------------------
+## parameters to monitor
+## -----------------------------
+# time-varying rates are vectors indexed 1:(n_years-1)
+params <- c(
+  # hyperparameters
+  "alpha_sc","alpha_sy","alpha_so","alpha_gy","alpha_fy","alpha_fo",
+  "sigma_sc","sigma_sy","sigma_so","sigma_gy","sigma_fy","sigma_fo",
+  # yearly vital rates
+  "s_c","s_y","s_o","g_y","f_y","f_o",
+  # latent states (and total)
+  "N_c","N_y","N_o","N_tot"
 )
 
-# summary
-round(elk_mod1$summary$all.chains,2)
+## -----------------------------
+## run MCMC
+## -----------------------------
+set.seed(17)
+
+nc <- 3
+ni <- 1000000
+nb <- 200000
+# (optional) thin to reduce file size:
+# th <- 10
+
+elk_mod1 <- nimbleMCMC(
+  code     = elk_code,        # time-varying model code from prior message
+  data     = elk_data,
+  constants= elk_constants,
+  inits    = make_inits,
+  monitors = params,
+  nchains  = nc,
+  niter    = ni,
+  nburnin  = nb,
+  # thin     = th,
+  summary  = TRUE
+)
+
+## -----------------------------
+## quick summary table
+## -----------------------------
+round(elk_mod1$summary$all.chains, 2)
 
 ############################################################################################
 ### for some reason, the following lines:
