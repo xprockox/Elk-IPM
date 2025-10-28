@@ -89,6 +89,11 @@ harvest <- harvest %>%
 
 abundances <- left_join(abundances, harvest)
 
+abundances <- abundances %>%
+  mutate(n_cow_yearling = round(n_cow * prop_age1),
+         n_cow_youngadult = round(n_cow * prop_age2_13),
+         n_cow_oldadult = round(n_cow * prop_age14plus))
+
 ############################################################
 ### ------------------ WRITE DATA ---------------------- ###
 ############################################################
