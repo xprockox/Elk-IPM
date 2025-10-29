@@ -13,6 +13,7 @@ library(dplyr)
 library(tidyr)
 library(stringr)
 library(ggplot2)
+library(tibble)
 
 ############################################################################################
 ### data import
@@ -22,64 +23,56 @@ dat <- read.csv('data/intermediate/abundanceEstimates_stages.csv')
 ############################################################################################
 ### nimble code
 
-# first specify study duration
-n_years <- length(dat)
+# ---- study duration (use a vector, not the data.frame itself) ----
+n_years <- length(dat$n_calf)   # was: length(dat)
 
 elk_code <- nimbleCode({
   
   ## -----------------------------
-  ## Priors for YEAR-VARYING rates
+  ## Priors for YEAR-VARYING rates (non-centered)
   ## -----------------------------
-  # Survival / progression: logit link
-  alpha_sc ~ dnorm(0, 0.01)    # calf survival intercept (logit scale)
-  alpha_sy ~ dnorm(0, 0.01)    # young survival intercept
-  alpha_so ~ dnorm(0, 0.01)    # old survival intercept
-  alpha_gy ~ dnorm(0, 0.01)    # young->old progression intercept
+  # Intercepts on link scales: weakly-informative around your beliefs
+  alpha_sc ~ dnorm(qlogis(0.30), 1/0.5^2)   # calf survival (logit)
+  alpha_sy ~ dnorm(qlogis(0.90), 1/0.5^2)   # young survival (logit)
+  alpha_so ~ dnorm(qlogis(0.80), 1/0.5^2)   # old survival (logit)
+  alpha_gy ~ dnorm(qlogis(0.15), 1/0.6^2)   # young->old (logit)
   
-  sigma_sc ~ dunif(1e-3, 2)
-  sigma_sy ~ dunif(1e-3, 2)
-  sigma_so ~ dunif(1e-3, 2)
-  sigma_gy ~ dunif(1e-3, 2)
-  tau_sc <- 1 / (sigma_sc^2)
-  tau_sy <- 1 / (sigma_sy^2)
-  tau_so <- 1 / (sigma_so^2)
-  tau_gy <- 1 / (sigma_gy^2)
+  alpha_fy ~ dnorm(log(0.20),  1/0.4^2)     # fecundity from Young (log)
+  alpha_fo ~ dnorm(log(0.05),  1/0.6^2)     # fecundity from Old (log)
   
-  # Fecundity: log link
-  alpha_fy ~ dnorm(0, 0.01)    # fecundity from Young (log scale)
-  alpha_fo ~ dnorm(0, 0.01)    # fecundity from Old (log scale)
+  # SD priors: half-normal via truncated normal (regularize year-to-year wiggle)
+  sigma_sc ~ T(dnorm(0, 1/0.4^2), 0, )
+  sigma_sy ~ T(dnorm(0, 1/0.3^2), 0, )
+  sigma_so ~ T(dnorm(0, 1/0.3^2), 0, )
+  sigma_gy ~ T(dnorm(0, 1/0.3^2), 0, )
+  sigma_fy ~ T(dnorm(0, 1/0.5^2), 0, )
+  sigma_fo ~ T(dnorm(0, 1/0.5^2), 0, )
   
-  sigma_fy ~ dunif(1e-3, 2)
-  sigma_fo ~ dunif(1e-3, 2)
-  tau_fy <- 1 / (sigma_fy^2)
-  tau_fo <- 1 / (sigma_fo^2)
-  
-  # Year effects and transformed rates (t = 1..n_years-1: drive transitions to t+1)
+  # Non-centered year effects: eps_*_std ~ N(0,1); multiply by sigma_* on link scale
   for (t in 1:(n_years-1)) {
-    # random year effects
-    eps_sc[t] ~ dnorm(0, tau_sc)
-    eps_sy[t] ~ dnorm(0, tau_sy)
-    eps_so[t] ~ dnorm(0, tau_so)
-    eps_gy[t] ~ dnorm(0, tau_gy)
-    eps_fy[t] ~ dnorm(0, tau_fy)
-    eps_fo[t] ~ dnorm(0, tau_fo)
+    eps_sc_std[t] ~ dnorm(0,1)
+    eps_sy_std[t] ~ dnorm(0,1)
+    eps_so_std[t] ~ dnorm(0,1)
+    eps_gy_std[t] ~ dnorm(0,1)
+    eps_fy_std[t] ~ dnorm(0,1)
+    eps_fo_std[t] ~ dnorm(0,1)
     
     # transformed yearly rates
-    logit(s_c[t]) <- alpha_sc + eps_sc[t]
-    logit(s_y[t]) <- alpha_sy + eps_sy[t]
-    logit(s_o[t]) <- alpha_so + eps_so[t]
-    logit(g_y[t]) <- alpha_gy + eps_gy[t]
+    logit(s_c[t]) <- alpha_sc + sigma_sc * eps_sc_std[t]
+    logit(s_y[t]) <- alpha_sy + sigma_sy * eps_sy_std[t]
+    logit(s_o[t]) <- alpha_so + sigma_so * eps_so_std[t]
+    logit(g_y[t]) <- alpha_gy + sigma_gy * eps_gy_std[t]
     
-    log(f_y[t]) <- alpha_fy + eps_fy[t]
-    log(f_o[t]) <- alpha_fo + eps_fo[t]
+    log(f_y[t])   <- alpha_fy + sigma_fy * eps_fy_std[t]
+    log(f_o[t])   <- alpha_fo + sigma_fo * eps_fo_std[t]
   }
   
   ## -----------------------------
-  ## Observation error (constant)
+  ## Observation error (keep away from 0)
   ## -----------------------------
-  sigma_obs_c ~ dunif(1e-3, 2)
-  sigma_obs_y ~ dunif(1e-3, 2)
-  sigma_obs_o ~ dunif(1e-3, 2)
+  sigma_obs_c ~ dunif(0.05, 2)
+  sigma_obs_y ~ dunif(0.05, 2)
+  sigma_obs_o ~ dunif(0.05, 2)
   tau_obs_c <- 1 / (sigma_obs_c^2)
   tau_obs_y <- 1 / (sigma_obs_y^2)
   tau_obs_o <- 1 / (sigma_obs_o^2)
@@ -106,41 +99,38 @@ elk_code <- nimbleCode({
   for (t in 1:(n_years-1)) {
     
     # Expected next-year abundances
-    mu_c[t+1] <- f_y[t]       * N_y[t] +
-      f_o[t]       * N_o[t]
+    mu_c[t+1] <- f_y[t] * N_y[t] + f_o[t] * N_o[t]
+    mu_y[t+1] <- s_c[t] * N_c[t] + s_y[t] * (1 - g_y[t]) * N_y[t]
+    mu_o[t+1] <- s_y[t] * g_y[t] * N_y[t] + s_o[t] * N_o[t]
     
-    mu_y[t+1] <- s_c[t]       * N_c[t] +
-      s_y[t] * (1 - g_y[t]) * N_y[t]
-    
-    mu_o[t+1] <- s_y[t] * g_y[t] * N_y[t] +
-      s_o[t]          * N_o[t]
-    
-    # Process variability (Poisson) with tiny positive floors
+    # Process stochasticity (tiny positive floors)
     N_c[t+1] ~ dpois(max(1e-9, mu_c[t+1]))
     N_y[t+1] ~ dpois(max(1e-9, mu_y[t+1]))
     N_o[t+1] ~ dpois(max(1e-9, mu_o[t+1]))
     
-    # Observation model (lognormal around true abundance)
+    # Observation model
     obs_calf[t+1]  ~ dlnorm(log(N_c[t+1] + 1e-6), tau_obs_c)
     obs_young[t+1] ~ dlnorm(log(N_y[t+1] + 1e-6), tau_obs_y)
     obs_old[t+1]   ~ dlnorm(log(N_o[t+1] + 1e-6), tau_obs_o)
   }
   
-  # Derived total (for every observed year)
+  # Derived totals
   for (t in 1:n_years) {
     N_tot[t] <- N_c[t] + N_y[t] + N_o[t]
   }
 })
 
 ############################################################################################
-### data and constants and params, etc.
+
+### RUN MODEL
+
 ## -----------------------------
 ## constants
 ## -----------------------------
-elk_constants <- list(n_years = n_years)  # n_years = length of your obs vectors
+elk_constants <- list(n_years = n_years)
 
 ## -----------------------------
-## data  (vectors length n_years; NAs allowed)
+## data
 ## -----------------------------
 elk_data <- list(
   obs_calf  = dat$n_calf,
@@ -149,7 +139,7 @@ elk_data <- list(
 )
 
 ## -----------------------------
-## inits  (compatible with time-varying rates)
+## inits  (match non-centered paramization)
 ## -----------------------------
 ilogit <- function(x) 1/(1+exp(-x))
 
@@ -166,25 +156,25 @@ make_inits <- function() {
                     pmax(1, round(dat$n_cow_oldadult)))
   
   list(
-    # intercepts on link scales
+    # intercepts centered on your beliefs
     alpha_sc = qlogis(0.60),
     alpha_sy = qlogis(0.90),
     alpha_so = qlogis(0.85),
     alpha_gy = qlogis(0.15),
     alpha_fy = log(0.20),
-    alpha_fo = log(0.30),
+    alpha_fo = log(0.05),
     
-    # SDs for year random effects (bounded away from 0)
-    sigma_sc = 0.20, sigma_sy = 0.10, sigma_so = 0.10,
-    sigma_gy = 0.10, sigma_fy = 0.30, sigma_fo = 0.30,
+    # SDs (start reasonably)
+    sigma_sc = 0.20, sigma_sy = 0.15, sigma_so = 0.15,
+    sigma_gy = 0.15, sigma_fy = 0.30, sigma_fo = 0.30,
     
-    # year effects (length n_years-1) start at 0
-    eps_sc = rep(0, n_years - 1),
-    eps_sy = rep(0, n_years - 1),
-    eps_so = rep(0, n_years - 1),
-    eps_gy = rep(0, n_years - 1),
-    eps_fy = rep(0, n_years - 1),
-    eps_fo = rep(0, n_years - 1),
+    # standard-normal year effects start at 0
+    eps_sc_std = rep(0, n_years - 1),
+    eps_sy_std = rep(0, n_years - 1),
+    eps_so_std = rep(0, n_years - 1),
+    eps_gy_std = rep(0, n_years - 1),
+    eps_fy_std = rep(0, n_years - 1),
+    eps_fo_std = rep(0, n_years - 1),
     
     # observation SDs
     sigma_obs_c = 0.30, sigma_obs_y = 0.30, sigma_obs_o = 0.30,
@@ -193,7 +183,6 @@ make_inits <- function() {
     lambda_init_c = max(1, round(init_Nc[1])),
     lambda_init_y = max(1, round(init_Ny[1])),
     lambda_init_o = max(1, round(init_No[1])),
-    
     N_c = pmax(1, init_Nc),
     N_y = pmax(1, init_Ny),
     N_o = pmax(1, init_No)
@@ -203,7 +192,6 @@ make_inits <- function() {
 ## -----------------------------
 ## parameters to monitor
 ## -----------------------------
-# time-varying rates are vectors indexed 1:(n_years-1)
 params <- c(
   # hyperparameters
   "alpha_sc","alpha_sy","alpha_so","alpha_gy","alpha_fy","alpha_fo",
@@ -214,28 +202,25 @@ params <- c(
   "N_c","N_y","N_o","N_tot"
 )
 
-## -----------------------------
-## run MCMC
-## -----------------------------
-set.seed(17)
 
+
+set.seed(17)
 nc <- 3
 ni <- 1000000
 nb <- 200000
-# (optional) thin to reduce file size:
-# th <- 10
+# th <- 10  # optional thinning
 
 elk_mod1 <- nimbleMCMC(
-  code     = elk_code,        # time-varying model code from prior message
-  data     = elk_data,
-  constants= elk_constants,
-  inits    = make_inits,
-  monitors = params,
-  nchains  = nc,
-  niter    = ni,
-  nburnin  = nb,
-  # thin     = th,
-  summary  = TRUE
+  code      = elk_code,
+  data      = elk_data,
+  constants = elk_constants,
+  inits     = make_inits,
+  monitors  = params,
+  nchains   = nc,
+  niter     = ni,
+  nburnin   = nb,
+  # thin      = th,
+  summary   = TRUE
 )
 
 ## -----------------------------
@@ -365,20 +350,35 @@ ggplot(N_summ, aes(x = year, y = mean, group = stage)) +
        subtitle = "Ribbon = 95% credible interval, Line = posterior mean, Red = observed")
 
 ############################################################################################
-### what about demographic rates?
+### what about vital rates?
 
-dem_rates <- MCMCsummary(ml_clean, 
-                         params = c("s_c", "s_y", "s_o", "g_y", "f_y", "f_o")) %>%
+vrates <- MCMCsummary(ml_clean,
+                      params = c("s_c","s_y","s_o","g_y","f_y","f_o")) %>%
   as.data.frame() %>%
-  tibble::rownames_to_column("param")
+  rownames_to_column("param") %>%
+  rename(mean = mean, low = `2.5%`, high = `97.5%`)
 
-dem_rates_plot <- dem_rates %>%
-  select(param, mean, `2.5%`, `97.5%`) %>%
-  rename(low = `2.5%`, high = `97.5%`)
+vrates <- vrates %>%
+  mutate(
+    year_index = as.integer(str_extract(param, "(?<=\\[)\\d+(?=\\])")),
+    rate = str_extract(param, "^[^\\[]+")  # remove bracket indices
+  )
 
-ggplot(dem_rates_plot, aes(x = param, y = mean)) +
-  geom_pointrange(aes(ymin = low, ymax = high)) +
-  coord_flip() +
+vrates$rate <- factor(vrates$rate,
+                      levels = c("s_c","s_y","s_o","g_y","f_y","f_o"),
+                      labels = c("Calf survival (s_c)",
+                                 "Young survival (s_y)",
+                                 "Old survival (s_o)",
+                                 "Young→old transition (g_y)",
+                                 "Fecundity (young) (f_y)",
+                                 "Fecundity (old) (f_o)"))
+vrates$year <- rep(1996:2023, 6)
+
+ggplot(vrates, aes(x = year, y = mean)) +
+  geom_ribbon(aes(ymin = low, ymax = high), alpha = 0.2) +
+  geom_line(size = 0.9) +
+  facet_wrap(~ rate, scales = "free_y") +
   theme_bw() +
-  labs(x = "Vital Rate", y = "Posterior Mean (95% CI)",
-       title = "Estimated Vital Rates")
+  labs(x = "Year", y = "Estimated value",
+       title = "Posterior Time-Varying Vital Rates (95% Credible Intervals)")
+
