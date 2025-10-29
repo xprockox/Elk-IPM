@@ -35,10 +35,10 @@ elk_code <- nimbleCode({
   alpha_sc ~ dnorm(qlogis(0.30), 1/0.5^2)   # calf survival (logit)
   alpha_sy ~ dnorm(qlogis(0.90), 1/0.5^2)   # young survival (logit)
   alpha_so ~ dnorm(qlogis(0.80), 1/0.5^2)   # old survival (logit)
-  alpha_gy ~ dnorm(qlogis(0.15), 1/0.6^2)   # young->old (logit)
+  alpha_gy ~ dnorm(qlogis(0.15), 1/0.5^2)   # young->old (logit)
   
-  alpha_fy ~ dnorm(log(0.20),  1/0.4^2)     # fecundity from Young (log)
-  alpha_fo ~ dnorm(log(0.05),  1/0.6^2)     # fecundity from Old (log)
+  alpha_fy ~ dnorm(log(0.85),  1/0.5^2)     # fecundity from Young (log)
+  alpha_fo ~ dnorm(log(0.5),  1/0.5^2)     # fecundity from Old (log)
   
   # SD priors: half-normal via truncated normal (regularize year-to-year wiggle)
   sigma_sc ~ T(dnorm(0, 1/0.4^2), 0, )
