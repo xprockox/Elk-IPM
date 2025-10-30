@@ -76,7 +76,7 @@ elk_ipm <- nimbleCode({
   
   # estimation of vital rates using mean value +/- some variation 
   # (sigma (SD) and eps (stochasticity))
-  for (t in 1:(n_years-1)) {
+  for (t in 1:(n_years)) {
     eps_sc_std[t] ~ dnorm(0,1)
     eps_sy_std[t] ~ dnorm(0,1)
     eps_so_std[t] ~ dnorm(0,1)
@@ -148,20 +148,23 @@ elk_ipm <- nimbleCode({
   }
   
   for (i in 1:N) {
-    # indicators for first-seen time on the model's timeline
     for (t in 1:n_years) {
-      is_first[i, t] <- equals(t, first_seen[i])     # 1 if t == first_seen[i], else 0
-      phi_t[i, t]    <- is_class1[i, t] * s_y[t] +   # class-specific survival used by CJS
-        is_class2[i, t] * s_o[t]
+      phi_t[i, t] <- is_class1[i, t] * s_y[t] + is_class2[i, t] * s_o[t]
     }
-    # initial alive state: alive if this is the first-seen time, else 0
+    
+    # Initial state
     z[i, 1] ~ dbern(is_first[i, 1])
-    # state transitions
+    
+    # State transitions
     for (t in 2:n_years) {
-      # if first_seen occurs at t, force alive; otherwise standard survival from t-1 using phi at t-1
-      z[i, t] ~ dbern( is_first[i, t] + (1 - is_first[i, t]) * z[i, t-1] * phi_t[i, t-1] )
+      # Survival probability: if not yet seen, 0; if first seen now, 1; otherwise phi
+      mu_z[i, t] <- step(first_seen[i] - t) * 0 +  # before first_seen
+        equals(first_seen[i], t) * 1 +    # at first_seen
+        step(t - first_seen[i] - 0.5) * z[i, t-1] * phi_t[i, t-1]  # after first_seen
+      z[i, t] ~ dbern(mu_z[i, t])
     }
-    # observation process
+    
+    # Observations
     for (t in 1:n_years) {
       y[i, t] ~ dbern(p[t] * z[i, t])
     }
@@ -229,12 +232,12 @@ make_inits <- function() {
     sigma_gy = 0.15, sigma_fy = 0.30, sigma_fo = 0.30,
     
     # standard-normal year effects start at 0
-    eps_sc_std = rep(0, n_years - 1),
-    eps_sy_std = rep(0, n_years - 1),
-    eps_so_std = rep(0, n_years - 1),
-    eps_gy_std = rep(0, n_years - 1),
-    eps_fy_std = rep(0, n_years - 1),
-    eps_fo_std = rep(0, n_years - 1),
+    eps_sc_std = rep(0, n_years),
+    eps_sy_std = rep(0, n_years),
+    eps_so_std = rep(0, n_years),
+    eps_gy_std = rep(0, n_years),
+    eps_fy_std = rep(0, n_years),
+    eps_fo_std = rep(0, n_years),
     
     # observation SDs
     sigma_obs_c = 0.30, sigma_obs_y = 0.30, sigma_obs_o = 0.30,
