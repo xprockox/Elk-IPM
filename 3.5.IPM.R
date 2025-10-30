@@ -3,7 +3,7 @@
 ### Contact: xprockox@gmail.com
 
 ############################################################################################
-### --------------- PACKAGES AND SET-UP ---------------- ###
+################# --------------- PACKAGES AND SET-UP ---------------- #####################
 ############################################################################################
 library(dplyr)
 library(lubridate)
@@ -14,7 +14,7 @@ library(ggplot2)
 library(nimble)
 
 ############################################################################################
-### --------------- DATA IMPORT ---------------- ###
+#################### --------------- DATA IMPORT ---------------- ##########################
 ############################################################################################
 load('data/intermediate/adultSurvival_cjsMatrices.rData')
 dat_n <- read.csv('data/intermediate/abundanceEstimates_stages.csv')
@@ -27,6 +27,24 @@ is_class1 <- is_class1_clipped
 is_class2 <- is_class2_clipped
 y <- y_clipped
 z <- z_clipped
+
+## 2025-10-30: Found an issue where there are latent state histories that are incorrect:
+## e.g., one individual in z could be 1, 1, 1, 1, NA, NA, NA, 1, 1
+## but if we know they're alive at the 8th and 9th timesteps, those NAs should also be 1s
+
+z_fixed <- z
+for (i in 1:nrow(z)) {
+  first_det <- which(z[i, ] == 1)[1]
+  last_det <- max(which(z[i, ] == 1))
+  
+  if (!is.na(first_det) && !is.na(last_det) && first_det < last_det) {
+    # Fill all NAs between first and last detection with 1
+    z_fixed[i, first_det:last_det] <- 1
+  }
+}
+
+# Use the fixed version
+z <- z_fixed
 
 # we have different years in the CJS and abundance data, so for now let's
 # only use years that are shared across both datasets
@@ -49,7 +67,7 @@ first_seen <- apply(y, 1, function(v) {
 first_seen <- as.integer(first_seen)
 
 ############################################################################################
-### --------------- NIMBLE CODE ---------------- ###
+#################### --------------- NIMBLE CODE ---------------- ##########################
 ############################################################################################
 n_years <- length(dat_n$n_calf)   
 
@@ -92,28 +110,36 @@ elk_ipm <- nimbleCode({
     log(f_o[t])   <- alpha_fo + sigma_fo * eps_fo_std[t]
   }
   
-  # observation error SD (sigma) and precision (tau)
-  sigma_obs_c ~ dunif(0.05, 2)
-  sigma_obs_y ~ dunif(0.05, 2)
-  sigma_obs_o ~ dunif(0.05, 2)
-  tau_obs_c <- 1 / (sigma_obs_c^2)
-  tau_obs_y <- 1 / (sigma_obs_y^2)
-  tau_obs_o <- 1 / (sigma_obs_o^2)
+  # observation error SD (sigma) and precision (tau) ### commented out to only use N_total and let model predict stage-specific abundances
+  # sigma_obs_c ~ dunif(0.05, 2)
+  # sigma_obs_y ~ dunif(0.05, 2)
+  # sigma_obs_o ~ dunif(0.05, 2)
+  # tau_obs_c <- 1 / (sigma_obs_c^2)
+  # tau_obs_y <- 1 / (sigma_obs_y^2)
+  # tau_obs_o <- 1 / (sigma_obs_o^2)
+  
+  sigma_obs_total ~ dunif(0.05, 2)
+  tau_obs_total <- 1 / (sigma_obs_total^2)
   
   # initial expected values of stage-specific abundances
   lambda_init_c ~ dgamma(0.001, 0.001)
   lambda_init_y ~ dgamma(0.001, 0.001)
   lambda_init_o ~ dgamma(0.001, 0.001)
   
+  lambda_init_total ~ dgamma(0.001, 0.001)
+  
   # initial latent stage-specific abundances (from expected values)
   N_c[1] ~ dpois(lambda_init_c)
   N_y[1] ~ dpois(lambda_init_y)
   N_o[1] ~ dpois(lambda_init_o)
   
-  # initial observations are related to latent state +/- observation error
-  obs_calf[1]  ~ dlnorm(log(N_c[1] + 1e-6), tau_obs_c)
-  obs_young[1] ~ dlnorm(log(N_y[1] + 1e-6), tau_obs_y)
-  obs_old[1]   ~ dlnorm(log(N_o[1] + 1e-6), tau_obs_o)
+  N_total[1] ~ dpois(lambda_init_total)
+  
+  # initial observations are related to latent state +/- observation error ### commented out to only use N_total and let model predict stage-specific abundances
+  # obs_calf[1]  ~ dlnorm(log(N_c[1] + 1e-6), tau_obs_c)
+  # obs_young[1] ~ dlnorm(log(N_y[1] + 1e-6), tau_obs_y)
+  # obs_old[1]   ~ dlnorm(log(N_o[1] + 1e-6), tau_obs_o)
+  obs_total[1] ~ dlnorm(log(N_total[1] + 1e-6), tau_obs_total)
   
   # process model
   for (t in 1:(n_years-1)) {
@@ -127,18 +153,26 @@ elk_ipm <- nimbleCode({
     N_y[t+1] ~ dpois(max(1e-9, mu_y[t+1]))
     N_o[t+1] ~ dpois(max(1e-9, mu_o[t+1]))
     
-    # observations
-    obs_calf[t+1]  ~ dlnorm(log(N_c[t+1] + 1e-6), tau_obs_c)
-    obs_young[t+1] ~ dlnorm(log(N_y[t+1] + 1e-6), tau_obs_y)
-    obs_old[t+1]   ~ dlnorm(log(N_o[t+1] + 1e-6), tau_obs_o)
+    # derive latent total abundance from latent stage-specific abundances 
+    N_total[t+1] <- N_c[t+1] + N_y[t+1] + N_o[t+1]
+    
+    # observations of total abundance are related to latent total abundance
+    obs_total[t+1] ~ dlnorm(log(N_total[t+1] + 1e-6), tau_obs_total)
+    
+    # obs_calf[t+1]  ~ dlnorm(log(N_c[t+1] + 1e-6), tau_obs_c) ### commented out to only use N_total and let model predict stage-specific abundances
+    # obs_young[t+1] ~ dlnorm(log(N_y[t+1] + 1e-6), tau_obs_y)
+    # obs_old[t+1]   ~ dlnorm(log(N_o[t+1] + 1e-6), tau_obs_o)
   }
   
-  # derived total abundance
-  for (t in 1:n_years) {
-    N_tot[t] <- N_c[t] + N_y[t] + N_o[t]
-  }
+  # derived total abundance ### commented out to only use N_total and let model predict stage-specific abundances
+  # for (t in 1:n_years) {
+  #   N_tot[t] <- N_c[t] + N_y[t] + N_o[t]
+  # }
   
   ## -----------------------------
+  ## (2) CJS MODEL
+  ## -----------------------------
+  
   ## (2) CJS MODEL
   ## -----------------------------
   
@@ -148,23 +182,22 @@ elk_ipm <- nimbleCode({
   }
   
   for (i in 1:N) {
-    for (t in 1:n_years) {
-      phi_t[i, t] <- is_class1[i, t] * s_y[t] + is_class2[i, t] * s_o[t]
-    }
+    # Time 1
+    z[i, 1] ~ dbern(equals(1, first_seen[i]))
     
-    # Initial state
-    z[i, 1] ~ dbern(is_first[i, 1])
-    
-    # State transitions
+    # Times 2 onward
     for (t in 2:n_years) {
-      # Survival probability: if not yet seen, 0; if first seen now, 1; otherwise phi
-      mu_z[i, t] <- step(first_seen[i] - t) * 0 +  # before first_seen
-        equals(first_seen[i], t) * 1 +    # at first_seen
-        step(t - first_seen[i] - 0.5) * z[i, t-1] * phi_t[i, t-1]  # after first_seen
-      z[i, t] ~ dbern(mu_z[i, t])
+      z[i, t] ~ dbern(
+        equals(t, first_seen[i]) +  # Must be alive at first capture
+          step(t - first_seen[i] - 0.5) * (1 - equals(t, first_seen[i])) *  # After first capture
+          z[i, t-1] * (
+            is_class1[i, t-1] * s_y[t-1] +
+              is_class2[i, t-1] * s_o[t-1]
+          )
+      )
     }
     
-    # Observations
+    # observations
     for (t in 1:n_years) {
       y[i, t] ~ dbern(p[t] * z[i, t])
     }
@@ -172,7 +205,7 @@ elk_ipm <- nimbleCode({
 })
 
 ############################################################################################
-### --------------- MODEL SPECS, INITS, AND DATA SOURCES ---------------- ###
+########### --------------- MODEL SPECS, INITS, AND DATA SOURCES ---------------- ##########
 ############################################################################################
 # constants & data 
 N <- nrow(y)
@@ -181,9 +214,10 @@ elk_constants <- list(n_years = n_years, N = N)
 
 elk_data <- list(
   # state-space
-  obs_calf  = dat_n$n_calf,
-  obs_young = dat_n$n_cow_youngadult,
-  obs_old = dat_n$n_cow_oldadult,
+  # obs_calf  = dat_n$n_calf,
+  # obs_young = dat_n$n_cow_youngadult,
+  # obs_old = dat_n$n_cow_oldadult,
+  obs_total = dat_n$n_total,  ### FLAGGING HERE that I'm not sure if this needs to be adjusted to be female only?
   # CJS
   y = y,
   is_class1 = is_class1,
@@ -207,14 +241,22 @@ make_inits <- function() {
   init_No <- ifelse(is.na(dat_n$n_cow_oldadult),
                     pmax(1, round(mean(dat_n$n_cow_oldadult, na.rm = TRUE))),
                     pmax(1, round(dat_n$n_cow_oldadult)))
+  init_Ntotal <- ifelse(is.na(dat_n$n_total),
+                    pmax(1, round(mean(dat_n$n_total, na.rm = TRUE))),
+                    pmax(1, round(dat_n$n_total)))
   
-  z_init <- matrix(0L, nrow = nrow(y), ncol = ncol(y))
+  z_init <- matrix(NA, nrow = nrow(y), ncol = ncol(y))
   for (i in 1:nrow(y)) {
-    dets <- which(y[i, ] == 1L)
-    if (length(dets) > 0) {
-      start <- min(dets); end <- max(dets)
-      # 0 before first detection, 1 from first through last detection
-      if (start <= end) z_init[i, start:end] <- 1L
+    detections <- which(y[i, ] == 1)
+    if (length(detections) > 0) {
+      first_det <- min(detections)
+      last_det <- max(detections)
+      # Set z=1 from first detection through last detection
+      z_init[i, first_det:last_det] <- 1L
+      # Everything before first detection stays NA (or set to 0)
+      if (first_det > 1) {
+        z_init[i, 1:(first_det-1)] <- 0L
+      }
     }
   }
   
@@ -240,15 +282,18 @@ make_inits <- function() {
     eps_fo_std = rep(0, n_years),
     
     # observation SDs
-    sigma_obs_c = 0.30, sigma_obs_y = 0.30, sigma_obs_o = 0.30,
+    # sigma_obs_c = 0.30, sigma_obs_y = 0.30, sigma_obs_o = 0.30,
+    sigma_obs_total = 0.30,
     
     # initial abundances
     lambda_init_c = max(1, round(init_Nc[1])),
     lambda_init_y = max(1, round(init_Ny[1])),
     lambda_init_o = max(1, round(init_No[1])),
+    lambda_init_total = max(1, round(init_Ntotal[1])),
     N_c = pmax(1, init_Nc),
     N_y = pmax(1, init_Ny),
     N_o = pmax(1, init_No),
+    N_total = pmax(1, init_Ntotal),
     
     # detection probability for cjs model
     p = runif(n_years, 0.6, 0.95),
@@ -274,7 +319,7 @@ params <- c(
   "p",
   
   # latent states (and total)
-  "N_c","N_y","N_o","N_tot"
+  "N_c","N_y","N_o","N_total"
 )
 
 ## -----------------------------
@@ -287,7 +332,7 @@ nb <- 2000
 th <- 1 
 
 ############################################################################################
-### --------------- RUN MODEL ---------------- ###
+####################### --------------- RUN MODEL ---------------- #########################
 ############################################################################################
 
 # run MCMC
