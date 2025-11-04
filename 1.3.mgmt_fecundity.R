@@ -1,5 +1,5 @@
 ### Calf Survival and Reproduction Data Management
-### Last updated: Oct. 27, 2025
+### Last updated: Nov. 4, 2025
 ### Contact: xprockox@gmail.com
 
 ############################################################
@@ -170,4 +170,4 @@ stop('[1.3.mgmt_productivity.R] \n
 All required matrices constructed. Code stopped to prevent overwriting data.\n
 Continue running code beyond this line to overwrite data exports.')
 
-write.csv(df, 'data/intermediate/productivity.csv')
+write.csv(df, 'data/intermediate/fecundity.csv')
