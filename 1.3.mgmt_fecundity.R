@@ -166,7 +166,7 @@ df <- df %>%
 ### ------------------ DATA WRITING -------------------- ###
 ############################################################
 
-stop('[1.3.mgmt_productivity.R] \n
+stop('[1.3.mgmt_fecundity.R] \n
 All required matrices constructed. Code stopped to prevent overwriting data.\n
 Continue running code beyond this line to overwrite data exports.')
 
