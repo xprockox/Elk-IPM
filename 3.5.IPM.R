@@ -1,5 +1,5 @@
 ### Elk IPM Main Script
-### Last updated: Oct. 30, 2025
+### Last updated: Nov. 4, 2025
 ### Contact: xprockox@gmail.com
 
 ############################################################################################
@@ -18,7 +18,7 @@ library(nimble)
 ############################################################################################
 load('data/intermediate/adultSurvival_cjsMatrices.rData')
 dat_n <- read.csv('data/intermediate/abundanceEstimates_stages.csv')
-dat_fec <- read.csv('data/intermediate/productivity.csv')
+dat_fec <- read.csv('data/intermediate/fecundity.csv')
 
 # later on, this will need to be moved into mgmt_survivalMatrices.R 
 # so that we save only the clipped versions. BUT we're leaving it for now, 
