@@ -59,7 +59,10 @@ y <- y[,which(colnames(y) %in% shared_years)]
 is_class1 <- is_class1[,which(colnames(is_class1) %in% shared_years)]
 is_class2 <- is_class2[,which(colnames(is_class2) %in% shared_years)]
 
-# --- derive first_seen from aligned y ---
+# the same is true for dat_fec (has more years), so we need to remove years that aren't shared
+dat_fec <- dat_fec[dat_fec$year %in% shared_years,]
+
+# --- derive first_seen dat_fec# --- derive first_seen from aligned y ---
 first_seen <- apply(y, 1, function(v) {
   i <- which(v == 1)[1]
   if (is.finite(i)) i else 1L
@@ -81,16 +84,16 @@ elk_ipm <- nimbleCode({
   alpha_sy ~ dnorm(qlogis(0.90), 1/0.5^2)
   alpha_so ~ dnorm(qlogis(0.80), 1/0.5^2)
   alpha_gy ~ dnorm(qlogis(0.15), 1/0.5^2)
-  alpha_fy ~ dnorm(log(0.85), 1/0.5^2)
-  alpha_fo ~ dnorm(log(0.5),  1/0.5^2)
+  # alpha_fy ~ dnorm(log(0.85), 1/0.5^2)
+  # alpha_fo ~ dnorm(log(0.5),  1/0.5^2)
   
-  # priors for SD of intercepts (controls variation in vital rates)
+  # priors for SD of intercepts (controls variation in vital rates away from mean values)
   sigma_sc ~ T(dnorm(0, 1/0.4^2), 0, )
   sigma_sy ~ T(dnorm(0, 1/0.3^2), 0, )
   sigma_so ~ T(dnorm(0, 1/0.3^2), 0, )
   sigma_gy ~ T(dnorm(0, 1/0.3^2), 0, )
-  sigma_fy ~ T(dnorm(0, 1/0.5^2), 0, )
-  sigma_fo ~ T(dnorm(0, 1/0.5^2), 0, )
+  # sigma_fy ~ T(dnorm(0, 1/0.5^2), 0, )
+  # sigma_fo ~ T(dnorm(0, 1/0.5^2), 0, )
   
   # estimation of vital rates using mean value +/- some variation 
   # (sigma (SD) and eps (stochasticity))
@@ -99,15 +102,15 @@ elk_ipm <- nimbleCode({
     eps_sy_std[t] ~ dnorm(0,1)
     eps_so_std[t] ~ dnorm(0,1)
     eps_gy_std[t] ~ dnorm(0,1)
-    eps_fy_std[t] ~ dnorm(0,1)
-    eps_fo_std[t] ~ dnorm(0,1)
+    # eps_fy_std[t] ~ dnorm(0,1)
+    # eps_fo_std[t] ~ dnorm(0,1)
     
     logit(s_c[t]) <- alpha_sc + sigma_sc * eps_sc_std[t]
     logit(s_y[t]) <- alpha_sy + sigma_sy * eps_sy_std[t]
     logit(s_o[t]) <- alpha_so + sigma_so * eps_so_std[t]
     logit(g_y[t]) <- alpha_gy + sigma_gy * eps_gy_std[t]
-    log(f_y[t])   <- alpha_fy + sigma_fy * eps_fy_std[t]
-    log(f_o[t])   <- alpha_fo + sigma_fo * eps_fo_std[t]
+    # log(f_y[t])   <- alpha_fy + sigma_fy * eps_fy_std[t]
+    # log(f_o[t])   <- alpha_fo + sigma_fo * eps_fo_std[t]
   }
   
   # observation error SD (sigma) and precision (tau) ### commented out to only use N_total and let model predict stage-specific abundances
@@ -144,12 +147,12 @@ elk_ipm <- nimbleCode({
   # process model
   for (t in 1:(n_years-1)) {
     # expected values
-    mu_c[t+1] <- f_y[t] * N_y[t] + f_o[t] * N_o[t]
+    # mu_c[t+1] <- f_y[t] * N_y[t] + f_o[t] * N_o[t]
     mu_y[t+1] <- s_c[t] * N_c[t] + s_y[t] * (1 - g_y[t]) * N_y[t]
     mu_o[t+1] <- s_y[t] * g_y[t] * N_y[t] + s_o[t] * N_o[t]
     
     # latent states
-    N_c[t+1] ~ dpois(max(1e-9, mu_c[t+1]))
+    # N_c[t+1] ~ dpois(max(1e-9, mu_c[t+1]))
     N_y[t+1] ~ dpois(max(1e-9, mu_y[t+1]))
     N_o[t+1] ~ dpois(max(1e-9, mu_o[t+1]))
     
@@ -170,9 +173,6 @@ elk_ipm <- nimbleCode({
   # }
   
   ## -----------------------------
-  ## (2) CJS MODEL
-  ## -----------------------------
-  
   ## (2) CJS MODEL
   ## -----------------------------
   
@@ -202,6 +202,31 @@ elk_ipm <- nimbleCode({
       y[i, t] ~ dbern(p[t] * z[i, t])
     }
   }
+  
+  ## -----------------------------
+  ## (3) CALF SURVIVAL 
+  ## -----------------------------
+  
+  for (t in 1:(n_years-1)) {
+    expected_calves[t] <- young_prop_pregnant[t] * s_c[t] * n_cows_young[t] +
+      old_prop_pregnant[t] * s_c[t] * n_cows_old[t]
+    
+    N_c[t+1] ~ dpois(max(1e-6, expected_calves[t]))
+  }
+  
+  ## -----------------------------
+  ## (4) FECUNDITY 
+  ## -----------------------------
+
+  for (t in 1:(n_years-1)){
+    # priors
+    f_y[t] ~ dbeta(1, 1)
+    f_o[t] ~ dbeta(1, 1)
+    
+    # parameter estimation
+    young_num_preg[t] ~ dbin(f_y[t], young_num_capt[t])
+    old_num_preg[t] ~ dbin(f_o[t], old_num_capt[t])
+  }
 })
 
 ############################################################################################
@@ -217,12 +242,22 @@ elk_data <- list(
   # obs_calf  = dat_n$n_calf,
   # obs_young = dat_n$n_cow_youngadult,
   # obs_old = dat_n$n_cow_oldadult,
-  obs_total = dat_n$n_total,  ### FLAGGING HERE that I'm not sure if this needs to be adjusted to be female only?
+  obs_total = dat_n$n_cow,  ### FLAGGING HERE this is adjusted to be female-only
   # CJS
   y = y,
   is_class1 = is_class1,
   is_class2 = is_class2,
-  first_seen = first_seen
+  first_seen = first_seen,
+  # fecundity
+  young_num_preg = dat_fec$young_num_preg,
+  young_num_capt = dat_fec$young_num_capt,
+  old_num_preg = dat_fec$old_num_preg,
+  old_num_capt = dat_fec$old_num_capt,
+  # calf survival
+  young_prop_pregnant = dat_fec$young_prop_pregnant,
+  n_cows_young = dat_fec$n_cows_young,
+  old_prop_pregnant = dat_fec$old_prop_pregnant,
+  n_cows_old = dat_fec$n_cows_old
 )
 
 
@@ -266,20 +301,21 @@ make_inits <- function() {
     alpha_sy = qlogis(0.90),
     alpha_so = qlogis(0.85),
     alpha_gy = qlogis(0.15),
-    alpha_fy = log(0.20),
-    alpha_fo = log(0.05),
+    # alpha_fy = log(0.20),
+    # alpha_fo = log(0.05),
     
     # SDs (start reasonably)
     sigma_sc = 0.20, sigma_sy = 0.15, sigma_so = 0.15,
-    sigma_gy = 0.15, sigma_fy = 0.30, sigma_fo = 0.30,
+    sigma_gy = 0.15, 
+    # sigma_fy = 0.30, sigma_fo = 0.30,
     
     # standard-normal year effects start at 0
     eps_sc_std = rep(0, n_years),
     eps_sy_std = rep(0, n_years),
     eps_so_std = rep(0, n_years),
     eps_gy_std = rep(0, n_years),
-    eps_fy_std = rep(0, n_years),
-    eps_fo_std = rep(0, n_years),
+    # eps_fy_std = rep(0, n_years),
+    # eps_fo_std = rep(0, n_years),
     
     # observation SDs
     # sigma_obs_c = 0.30, sigma_obs_y = 0.30, sigma_obs_o = 0.30,
@@ -299,7 +335,11 @@ make_inits <- function() {
     p = runif(n_years, 0.6, 0.95),
     
     # initial z matrix for cjs model
-    z = z_init
+    z = z_init,
+    
+    # fecundity initials
+    f_y = rep(0.3, n_years - 1),  # or use actual mean from dat_fec
+    f_o = rep(0.15, n_years - 1)
   )
 }
 
@@ -309,11 +349,14 @@ make_inits <- function() {
 ## -----------------------------
 params <- c(
   # hyperparameters
-  "alpha_sc","alpha_sy","alpha_so","alpha_gy","alpha_fy","alpha_fo",
-  "sigma_sc","sigma_sy","sigma_so","sigma_gy","sigma_fy","sigma_fo",
+  "alpha_sc","alpha_sy","alpha_so","alpha_gy",
+  # "alpha_fy","alpha_fo",
+  "sigma_sc","sigma_sy","sigma_so","sigma_gy",
+  # "sigma_fy","sigma_fo",
   
   # yearly vital rates (shared by IPM & CJS)
-  "s_c","s_y","s_o","g_y","f_y","f_o",
+  "s_c","s_y","s_o","g_y",
+  # "f_y","f_o",
   
   # detection (CJS)
   "p",
