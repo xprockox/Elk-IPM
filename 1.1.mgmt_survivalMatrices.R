@@ -450,33 +450,35 @@ legend("topright", legend = c("Not Alive", "Age 0–14", "Age >14"),
 ### -------------------- DATA EXPORT ------------------  ###
 ############################################################
 
+# drop "_clipped" syntax
+is_class1 <- is_class1_clipped
+is_class2 <- is_class2_clipped
+y <- y_clipped
+z <- z_clipped
+first_seen <- first_seen_clipped
+
 ### keep the following for the model, but remove everything else:
-# y
 # y_clipped
-# first_seen
 # first_seen_clipped
-# z
 # z_clipped
-# is_class1
 # is_class1_clipped
-# is_class2
 # is_class2_clipped
 
 rm(list = setdiff(ls(), c(
-  "y", "y_clipped",
-  "first_seen", "first_seen_clipped",
-  "z", "z_clipped",
-  "is_class1_clipped",
-  "is_class2_clipped"
+  "y",
+  "first_seen",
+  "z",
+  "is_class1", 
+  "is_class2" 
 )))
 
 stop('[1.1.mgmt_survivalMatrices.R] \n
 All required matrices constructed. Code stopped to prevent overwriting data.\n
 Continue running code beyond this line to overwrite data exports.')
 
-save(y, y_clipped,
-     first_seen, first_seen_clipped,
-     z, z_clipped,
-     is_class1_clipped,
-     is_class2_clipped, 
+save(y,
+     first_seen,
+     z,
+     is_class1,
+     is_class2, 
      file = "data/intermediate/adultSurvival_cjsMatrices.rData")
