@@ -62,32 +62,29 @@ df$n_bulls <- round(df$n_total * df$percent_cows * df$bull_cow_ratio)
 
 preg_collar_prop <- preg_collar %>%
   mutate(
-    # Convert pregnant to binary 1/0
-    pregnant_code = ifelse(Pregnant == "yes", 1, 0),
-    
-    # Extract year of capture
-    year = year(as.POSIXct(strptime(Capture.Date, format = '%d-%b-%y'))),
-
-    # Calculate age at capture
+    pregnant_code = as.integer(Pregnant == "yes"),
+    year = lubridate::year(as.POSIXct(strptime(Capture.Date, "%d-%b-%y"))),
     age = year - BirthYear,
-    
-    # Define age classes
-    AgeClass = ifelse(age <= 13, "young", "old")
+    AgeClass = case_when(age <= 13 ~ "young",
+                         age >  13 ~ "old",
+                         TRUE ~ NA_character_)
   ) %>%
+  filter(!is.na(AgeClass)) %>%                     # avoid NA_* columns
   group_by(year, AgeClass) %>%
-  summarize(
-    prop_pregnant = mean(pregnant_code, na.rm = TRUE),
+  summarise(
+    total = n(),
+    num_pregnant   = sum(pregnant_code, na.rm = TRUE),
+    prop_pregnant  = mean(pregnant_code, na.rm = TRUE),
     .groups = "drop"
   ) %>%
   pivot_wider(
-    names_from = AgeClass,
-    values_from = prop_pregnant,
-    names_glue = "{AgeClass}_prop_preg_collar"
+    names_from  = AgeClass,
+    values_from = c(total, num_pregnant, prop_pregnant),
+    names_glue  = "{AgeClass}_{.value}_collar"
   ) %>%
-  arrange(year)%>%
-  select(-NA_prop_preg_collar)
+  arrange(year)
 
-df <- left_join(df, preg_collar_prop)
+df <- left_join(df, preg_collar_prop, by='year')
 
 # incorporating FWP preg data from harvested elk during antlerless harvest years (1997-2009)
 
@@ -95,20 +92,21 @@ preg_harvest_props <- preg_harvest %>%
   mutate(
     AgeClass = ifelse(ageatharvest <= 13, "young", "old")
   ) %>%
+  filter(!is.na(AgeClass)) %>%
   group_by(harvestyear, AgeClass) %>%
-  summarize(
-    prop_pregnant = mean(pregnant_code, na.rm = TRUE),
+  summarise(
+    total = n(),
+    num_pregnant   = sum(pregnant_code, na.rm = TRUE),
+    prop_pregnant  = mean(pregnant_code, na.rm = TRUE),
     .groups = "drop"
   ) %>%
   pivot_wider(
-    names_from = AgeClass,
-    values_from = prop_pregnant,
-    names_glue = "{AgeClass}_prop_preg_harvest"
+    names_from  = AgeClass,
+    values_from = c(total, num_pregnant, prop_pregnant),
+    names_glue  = "{AgeClass}_{.value}_harvest"   # <-- include {.value}
   ) %>%
-  arrange(harvestyear)%>%
+  arrange(harvestyear) %>%
   rename(year = harvestyear)
-
-preg_harvest_props
 
 df <- left_join(df, preg_harvest_props, by='year')
 
@@ -131,7 +129,7 @@ age_structure_prop <- age_structure %>%
   pivot_wider(
     names_from = AgeClass,
     values_from = Proportion,
-    names_glue = "{AgeClass}_propN"
+    names_glue = "percent_cows_{AgeClass}"
   ) %>%
   arrange(Year)%>%
   rename(year = Year)
@@ -142,19 +140,27 @@ df <- left_join(df, age_structure_prop, by='year')
 # including harvest estimate only when the capture estimate does not exist
 df <- df %>%
   rename(total_elk_classified = total_elk) %>%
-  mutate(young_prop_preg = round(coalesce(young_prop_preg_collar, young_prop_preg_harvest), 2),
-         old_prop_preg = round(coalesce(old_prop_preg_collar, old_prop_preg_harvest), 2),
-         n_cows_young = round(n_cows * young_propN),
-         n_cows_old = round(n_cows * old_propN),
-         expected_calves_from_young = round(n_cows_young * young_prop_preg, 2),
-         expected_calves_from_old = round(n_cows_old * old_prop_preg, 2),
+  mutate(young_num_preg = round(coalesce(young_num_pregnant_collar, young_num_pregnant_harvest), 2),
+         old_num_preg = round(coalesce(old_num_pregnant_collar, old_num_pregnant_harvest), 2),
+         young_num_capt = round(coalesce(young_total_collar, young_total_harvest), 2),
+         old_num_capt = round(coalesce(old_total_collar, old_total_harvest), 2),
+         young_prop_pregnant = round(coalesce(young_prop_pregnant_collar, young_prop_pregnant_harvest), 2),
+         old_prop_pregnant = round(coalesce(old_prop_pregnant_collar, old_prop_pregnant_harvest), 2),
+         n_cows_young = round(n_cows * percent_cows_young),
+         n_cows_old = round(n_cows * percent_cows_old),
+         expected_calves_from_young = round(n_cows_young * young_prop_pregnant, 2),
+         expected_calves_from_old = round(n_cows_old * old_prop_pregnant, 2),
          expected_calves = expected_calves_from_young + expected_calves_from_old,
          calf_surv = round(n_calves/expected_calves, 2)) %>%
   select(-survey_date, -Method, 
          -total_elk_classified, -cows, -calves,
          -calf_per100cow, -spike_per100cow, -btb_per100cow, -bull_per100cow, 
-         -old_prop_preg_collar, -old_prop_preg_harvest,
-         -young_prop_preg_collar, -young_prop_preg_harvest)
+         -old_prop_pregnant_collar, -old_prop_pregnant_harvest,
+         -young_prop_pregnant_collar, -young_prop_pregnant_harvest,
+         -young_total_collar, -young_total_harvest,
+         -old_total_collar, -old_total_harvest,
+         -young_num_pregnant_collar, -young_num_pregnant_harvest,
+         -old_num_pregnant_collar, -old_num_pregnant_harvest)
 
 ############################################################
 ### ------------------ DATA WRITING -------------------- ###
