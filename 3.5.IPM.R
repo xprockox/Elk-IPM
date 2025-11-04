@@ -62,7 +62,7 @@ is_class2 <- is_class2[,which(colnames(is_class2) %in% shared_years)]
 # the same is true for dat_fec (has more years), so we need to remove years that aren't shared
 dat_fec <- dat_fec[dat_fec$year %in% shared_years,]
 
-# --- derive first_seen dat_fec# --- derive first_seen from aligned y ---
+# --- derive first_seen from aligned y ---
 first_seen <- apply(y, 1, function(v) {
   i <- which(v == 1)[1]
   if (is.finite(i)) i else 1L
@@ -72,6 +72,7 @@ first_seen <- as.integer(first_seen)
 ############################################################################################
 #################### --------------- NIMBLE CODE ---------------- ##########################
 ############################################################################################
+# define years
 n_years <- length(dat_n$n_calf)   
 
 elk_ipm <- nimbleCode({
