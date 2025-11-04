@@ -20,19 +20,13 @@ load('data/intermediate/adultSurvival_cjsMatrices.rData')
 dat_n <- read.csv('data/intermediate/abundanceEstimates_stages.csv')
 dat_fec <- read.csv('data/intermediate/fecundity.csv')
 
-# later on, this will need to be moved into mgmt_survivalMatrices.R 
-# so that we save only the clipped versions. BUT we're leaving it for now, 
-# because 3.1.SurvivalAnalyses.R relies on the "_clipped" syntax.
-is_class1 <- is_class1_clipped
-is_class2 <- is_class2_clipped
-y <- y_clipped
-z <- z_clipped
-
 ## 2025-10-30: Found an issue where there are latent state histories that are incorrect:
 ## e.g., one individual in z could be 1, 1, 1, 1, NA, NA, NA, 1, 1
 ## but if we know they're alive at the 8th and 9th timesteps, those NAs should also be 1s
 
-z_fixed <- z
+z_fixed <- z # make a copy to work on
+
+# fix the copy
 for (i in 1:nrow(z)) {
   first_det <- which(z[i, ] == 1)[1]
   last_det <- max(which(z[i, ] == 1))
@@ -45,6 +39,7 @@ for (i in 1:nrow(z)) {
 
 # Use the fixed version
 z <- z_fixed
+rm(z_fixed)
 
 # we have different years in the CJS and abundance data, so for now let's
 # only use years that are shared across both datasets
@@ -62,13 +57,6 @@ is_class2 <- is_class2[,which(colnames(is_class2) %in% shared_years)]
 # the same is true for dat_fec (has more years), so we need to remove years that aren't shared
 dat_fec <- dat_fec[dat_fec$year %in% shared_years,]
 
-# --- derive first_seen from aligned y ---
-first_seen <- apply(y, 1, function(v) {
-  i <- which(v == 1)[1]
-  if (is.finite(i)) i else 1L
-})
-first_seen <- as.integer(first_seen)
-
 ############################################################################################
 #################### --------------- NIMBLE CODE ---------------- ##########################
 ############################################################################################
@@ -84,17 +72,13 @@ elk_ipm <- nimbleCode({
   alpha_sc ~ dnorm(qlogis(0.30), 1/0.5^2)
   alpha_sy ~ dnorm(qlogis(0.90), 1/0.5^2)
   alpha_so ~ dnorm(qlogis(0.80), 1/0.5^2)
-  alpha_gy ~ dnorm(qlogis(0.15), 1/0.5^2)
-  # alpha_fy ~ dnorm(log(0.85), 1/0.5^2)
-  # alpha_fo ~ dnorm(log(0.5),  1/0.5^2)
+  alpha_gy ~ dnorm(qlogis(0.15), 1/0.5^2) # only doing survival and growth because fecundity has its own model
   
   # priors for SD of intercepts (controls variation in vital rates away from mean values)
   sigma_sc ~ T(dnorm(0, 1/0.4^2), 0, )
   sigma_sy ~ T(dnorm(0, 1/0.3^2), 0, )
   sigma_so ~ T(dnorm(0, 1/0.3^2), 0, )
   sigma_gy ~ T(dnorm(0, 1/0.3^2), 0, )
-  # sigma_fy ~ T(dnorm(0, 1/0.5^2), 0, )
-  # sigma_fo ~ T(dnorm(0, 1/0.5^2), 0, )
   
   # estimation of vital rates using mean value +/- some variation 
   # (sigma (SD) and eps (stochasticity))
@@ -103,24 +87,12 @@ elk_ipm <- nimbleCode({
     eps_sy_std[t] ~ dnorm(0,1)
     eps_so_std[t] ~ dnorm(0,1)
     eps_gy_std[t] ~ dnorm(0,1)
-    # eps_fy_std[t] ~ dnorm(0,1)
-    # eps_fo_std[t] ~ dnorm(0,1)
     
     logit(s_c[t]) <- alpha_sc + sigma_sc * eps_sc_std[t]
     logit(s_y[t]) <- alpha_sy + sigma_sy * eps_sy_std[t]
     logit(s_o[t]) <- alpha_so + sigma_so * eps_so_std[t]
     logit(g_y[t]) <- alpha_gy + sigma_gy * eps_gy_std[t]
-    # log(f_y[t])   <- alpha_fy + sigma_fy * eps_fy_std[t]
-    # log(f_o[t])   <- alpha_fo + sigma_fo * eps_fo_std[t]
   }
-  
-  # observation error SD (sigma) and precision (tau) ### commented out to only use N_total and let model predict stage-specific abundances
-  # sigma_obs_c ~ dunif(0.05, 2)
-  # sigma_obs_y ~ dunif(0.05, 2)
-  # sigma_obs_o ~ dunif(0.05, 2)
-  # tau_obs_c <- 1 / (sigma_obs_c^2)
-  # tau_obs_y <- 1 / (sigma_obs_y^2)
-  # tau_obs_o <- 1 / (sigma_obs_o^2)
   
   sigma_obs_total ~ dunif(0.05, 2)
   tau_obs_total <- 1 / (sigma_obs_total^2)
@@ -139,21 +111,15 @@ elk_ipm <- nimbleCode({
   
   N_total[1] ~ dpois(lambda_init_total)
   
-  # initial observations are related to latent state +/- observation error ### commented out to only use N_total and let model predict stage-specific abundances
-  # obs_calf[1]  ~ dlnorm(log(N_c[1] + 1e-6), tau_obs_c)
-  # obs_young[1] ~ dlnorm(log(N_y[1] + 1e-6), tau_obs_y)
-  # obs_old[1]   ~ dlnorm(log(N_o[1] + 1e-6), tau_obs_o)
   obs_total[1] ~ dlnorm(log(N_total[1] + 1e-6), tau_obs_total)
   
   # process model
   for (t in 1:(n_years-1)) {
     # expected values
-    # mu_c[t+1] <- f_y[t] * N_y[t] + f_o[t] * N_o[t]
     mu_y[t+1] <- s_c[t] * N_c[t] + s_y[t] * (1 - g_y[t]) * N_y[t]
     mu_o[t+1] <- s_y[t] * g_y[t] * N_y[t] + s_o[t] * N_o[t]
     
     # latent states
-    # N_c[t+1] ~ dpois(max(1e-9, mu_c[t+1]))
     N_y[t+1] ~ dpois(max(1e-9, mu_y[t+1]))
     N_o[t+1] ~ dpois(max(1e-9, mu_o[t+1]))
     
@@ -162,16 +128,7 @@ elk_ipm <- nimbleCode({
     
     # observations of total abundance are related to latent total abundance
     obs_total[t+1] ~ dlnorm(log(N_total[t+1] + 1e-6), tau_obs_total)
-    
-    # obs_calf[t+1]  ~ dlnorm(log(N_c[t+1] + 1e-6), tau_obs_c) ### commented out to only use N_total and let model predict stage-specific abundances
-    # obs_young[t+1] ~ dlnorm(log(N_y[t+1] + 1e-6), tau_obs_y)
-    # obs_old[t+1]   ~ dlnorm(log(N_o[t+1] + 1e-6), tau_obs_o)
   }
-  
-  # derived total abundance ### commented out to only use N_total and let model predict stage-specific abundances
-  # for (t in 1:n_years) {
-  #   N_tot[t] <- N_c[t] + N_y[t] + N_o[t]
-  # }
   
   ## -----------------------------
   ## (2) CJS MODEL
@@ -182,19 +139,22 @@ elk_ipm <- nimbleCode({
     p[t] ~ dunif(0, 1)
   }
   
+
   for (i in 1:N) {
     # Time 1
     z[i, 1] ~ dbern(equals(1, first_seen[i]))
     
     # Times 2 onward
     for (t in 2:n_years) {
+      # Ensure at least one class is active (add small constant)
+      phi[i, t] <- is_class1[i, t-1] * s_y[t-1] + 
+        is_class2[i, t-1] * s_o[t-1] +
+        1e-10  # prevent exactly 0
+      
       z[i, t] ~ dbern(
-        equals(t, first_seen[i]) +  # Must be alive at first capture
-          step(t - first_seen[i] - 0.5) * (1 - equals(t, first_seen[i])) *  # After first capture
-          z[i, t-1] * (
-            is_class1[i, t-1] * s_y[t-1] +
-              is_class2[i, t-1] * s_o[t-1]
-          )
+        equals(t, first_seen[i]) +
+          step(t - first_seen[i] - 0.5) * (1 - equals(t, first_seen[i])) *
+          z[i, t-1] * phi[i, t]
       )
     }
     
@@ -209,8 +169,8 @@ elk_ipm <- nimbleCode({
   ## -----------------------------
   
   for (t in 1:(n_years-1)) {
-    expected_calves[t] <- young_prop_pregnant[t] * s_c[t] * n_cows_young[t] +
-      old_prop_pregnant[t] * s_c[t] * n_cows_old[t]
+    expected_calves[t] <- f_y[t] * s_c[t] * N_y[t] +
+      f_o[t] * s_c[t] * N_o[t]
     
     N_c[t+1] ~ dpois(max(1e-6, expected_calves[t]))
   }
@@ -240,10 +200,7 @@ elk_constants <- list(n_years = n_years, N = N)
 
 elk_data <- list(
   # state-space
-  # obs_calf  = dat_n$n_calf,
-  # obs_young = dat_n$n_cow_youngadult,
-  # obs_old = dat_n$n_cow_oldadult,
-  obs_total = dat_n$n_cow,  ### FLAGGING HERE this is adjusted to be female-only
+  obs_total = dat_n$n_cow,  # female-only
   # CJS
   y = y,
   is_class1 = is_class1,
@@ -253,12 +210,7 @@ elk_data <- list(
   young_num_preg = dat_fec$young_num_preg,
   young_num_capt = dat_fec$young_num_capt,
   old_num_preg = dat_fec$old_num_preg,
-  old_num_capt = dat_fec$old_num_capt,
-  # calf survival
-  young_prop_pregnant = dat_fec$young_prop_pregnant,
-  n_cows_young = dat_fec$n_cows_young,
-  old_prop_pregnant = dat_fec$old_prop_pregnant,
-  n_cows_old = dat_fec$n_cows_old
+  old_num_capt = dat_fec$old_num_capt
 )
 
 
@@ -297,29 +249,25 @@ make_inits <- function() {
   }
   
   list(
-    # intercepts centered on your beliefs
+    # intercepts centered on beliefs
     alpha_sc = qlogis(0.60),
     alpha_sy = qlogis(0.90),
     alpha_so = qlogis(0.85),
     alpha_gy = qlogis(0.15),
-    # alpha_fy = log(0.20),
-    # alpha_fo = log(0.05),
     
     # SDs (start reasonably)
-    sigma_sc = 0.20, sigma_sy = 0.15, sigma_so = 0.15,
+    sigma_sc = 0.20, 
+    sigma_sy = 0.15, 
+    sigma_so = 0.15,
     sigma_gy = 0.15, 
-    # sigma_fy = 0.30, sigma_fo = 0.30,
     
     # standard-normal year effects start at 0
     eps_sc_std = rep(0, n_years),
     eps_sy_std = rep(0, n_years),
     eps_so_std = rep(0, n_years),
     eps_gy_std = rep(0, n_years),
-    # eps_fy_std = rep(0, n_years),
-    # eps_fo_std = rep(0, n_years),
     
     # observation SDs
-    # sigma_obs_c = 0.30, sigma_obs_y = 0.30, sigma_obs_o = 0.30,
     sigma_obs_total = 0.30,
     
     # initial abundances
@@ -339,7 +287,7 @@ make_inits <- function() {
     z = z_init,
     
     # fecundity initials
-    f_y = rep(0.3, n_years - 1),  # or use actual mean from dat_fec
+    f_y = rep(0.3, n_years - 1),  
     f_o = rep(0.15, n_years - 1)
   )
 }
@@ -351,14 +299,11 @@ make_inits <- function() {
 params <- c(
   # hyperparameters
   "alpha_sc","alpha_sy","alpha_so","alpha_gy",
-  # "alpha_fy","alpha_fo",
   "sigma_sc","sigma_sy","sigma_so","sigma_gy",
-  # "sigma_fy","sigma_fo",
-  
+
   # yearly vital rates (shared by IPM & CJS)
   "s_c","s_y","s_o","g_y",
-  # "f_y","f_o",
-  
+
   # detection (CJS)
   "p",
   
@@ -371,9 +316,9 @@ params <- c(
 ## -----------------------------
 set.seed(17)
 nc <- 3
-ni <- 10000
-nb <- 2000
-th <- 1 
+ni <- 100000
+nb <- 20000
+th <- 4
 
 ############################################################################################
 ####################### --------------- RUN MODEL ---------------- #########################
