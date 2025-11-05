@@ -169,10 +169,10 @@ elk_ipm <- nimbleCode({
   ## -----------------------------
   
   for (t in 1:(n_years-1)) {
-    expected_calves[t] <- f_y[t] * s_c[t] * N_y[t] +
+    expected_calves[t+1] <- f_y[t] * s_c[t] * N_y[t] +
       f_o[t] * s_c[t] * N_o[t]
     
-    N_c[t+1] ~ dpois(max(1e-6, expected_calves[t]))
+    N_c[t+1] ~ dpois(max(1e-6, expected_calves[t+1]))
   }
   
   ## -----------------------------
