@@ -57,6 +57,10 @@ is_class2 <- is_class2[,which(colnames(is_class2) %in% shared_years)]
 # the same is true for dat_fec (has more years), so we need to remove years that aren't shared
 dat_fec <- dat_fec[dat_fec$year %in% shared_years,]
 
+### Nov. 5, 2025: The total number of elk (n_total) shouldn't be used because this doesn't exclude bulls
+# instead, we want to approximate it as the total number of cows + half the total number of calves
+dat_n$n_female <- dat_n$n_cow + (dat_n$n_calf/2)
+
 ############################################################################################
 #################### --------------- NIMBLE CODE ---------------- ##########################
 ############################################################################################
@@ -69,7 +73,7 @@ elk_ipm <- nimbleCode({
   ## (1) STATE-SPACE IPM 
   ## -----------------------------
   # priors for intercepts (mean values of vital rates)
-  alpha_sc ~ dnorm(qlogis(0.30), 1/0.5^2)
+  alpha_sc ~ dnorm(qlogis(0.22), 1/0.5^2)
   alpha_sy ~ dnorm(qlogis(0.90), 1/0.5^2)
   alpha_so ~ dnorm(qlogis(0.80), 1/0.5^2)
   alpha_gy ~ dnorm(qlogis(0.15), 1/0.5^2) # only doing survival and growth because fecundity has its own model
@@ -98,11 +102,11 @@ elk_ipm <- nimbleCode({
   tau_obs_total <- 1 / (sigma_obs_total^2)
   
   # initial expected values of stage-specific abundances
-  lambda_init_c ~ dgamma(0.001, 0.001)
-  lambda_init_y ~ dgamma(0.001, 0.001)
-  lambda_init_o ~ dgamma(0.001, 0.001)
+  lambda_init_c ~ dgamma(11.1, 0.00454)   # mean ≈ 2451 (dat_n$n_calf[1] = 2451)
+  lambda_init_y ~ dgamma(11.1, 0.00118)   # mean ≈ 9418 (dat_n$n_cow_youngadult[1] = 9418)
+  lambda_init_o ~ dgamma(11.1, 0.0111)    # mean ≈ 997 (dat_n$n_cow_oldadult[1] = 997)
   
-  lambda_init_total ~ dgamma(0.001, 0.001)
+  lambda_init_total ~ dgamma(11.1, 0.000863) # mean ≈ 12866 (sum of all three prev. values = 12866)
   
   # initial latent stage-specific abundances (from expected values)
   N_c[1] ~ dpois(lambda_init_c)
@@ -169,10 +173,10 @@ elk_ipm <- nimbleCode({
   ## -----------------------------
   
   for (t in 1:(n_years-1)) {
-    expected_calves[t+1] <- f_y[t] * s_c[t] * N_y[t] +
+    mu_c[t+1] <- f_y[t] * s_c[t] * N_y[t] +
       f_o[t] * s_c[t] * N_o[t]
     
-    N_c[t+1] ~ dpois(max(1e-6, expected_calves[t+1]))
+    N_c[t+1] ~ dpois(max(1e-6, mu_c[t+1]))
   }
   
   ## -----------------------------
@@ -200,7 +204,7 @@ elk_constants <- list(n_years = n_years, N = N)
 
 elk_data <- list(
   # state-space
-  obs_total = dat_n$n_cow,  # female-only
+  obs_total = dat_n$n_female,  # female-only
   # CJS
   y = y,
   is_class1 = is_class1,
@@ -220,9 +224,9 @@ elk_data <- list(
 
 make_inits <- function() {
   # seed latent states near observations
-  init_Nc <- ifelse(is.na(dat_n$n_calf),
-                    pmax(1, round(mean(dat_n$n_calf, na.rm = TRUE))),
-                    pmax(1, round(dat_n$n_calf)))
+  init_Nc <- ifelse(is.na(dat_n$n_calf), # is n_calf is NA for a given year,
+                    pmax(1, round(mean(dat_n$n_calf, na.rm = TRUE))), # use the mean n_calf as initial, with na.rm
+                    pmax(1, round(dat_n$n_calf))) # otherwise, use the "observed value"
   init_Ny <- ifelse(is.na(dat_n$n_cow_youngadult),
                     pmax(1, round(mean(dat_n$n_cow_youngadult, na.rm = TRUE))),
                     pmax(1, round(dat_n$n_cow_youngadult)))
@@ -250,7 +254,7 @@ make_inits <- function() {
   
   list(
     # intercepts centered on beliefs
-    alpha_sc = qlogis(0.60),
+    alpha_sc = qlogis(0.22),
     alpha_sy = qlogis(0.90),
     alpha_so = qlogis(0.85),
     alpha_gy = qlogis(0.15),
@@ -287,8 +291,8 @@ make_inits <- function() {
     z = z_init,
     
     # fecundity initials
-    f_y = rep(0.3, n_years - 1),  
-    f_o = rep(0.15, n_years - 1)
+    f_y = rep(0.76, n_years - 1),  # mean(dat_fec$young_prop_pregnant, na.rm=TRUE) = 0.76
+    f_o = rep(0.64, n_years - 1)  # mean(dat_fec$old_prop_pregnant, na.rm=TRUE) = 0.64
   )
 }
 
@@ -303,6 +307,7 @@ params <- c(
 
   # yearly vital rates (shared by IPM & CJS)
   "s_c","s_y","s_o","g_y",
+  "f_y", 'f_o',
 
   # detection (CJS)
   "p",
@@ -316,8 +321,8 @@ params <- c(
 ## -----------------------------
 set.seed(17)
 nc <- 3
-ni <- 100000
-nb <- 20000
+ni <- 1000000
+nb <- 200000
 th <- 4
 
 ############################################################################################
@@ -337,6 +342,9 @@ elk_mod1 <- nimbleMCMC(
   thin      = th,
   summary   = TRUE
 )
+
+# OR IMPORT PREVIOUSLY RUN MODEL TO WORK WITH RESULTS BEYOND HERE
+# elk_mod1 <- readRDS('data/results/elk_mod1_results.rds')
 
 ## -----------------------------
 ## quick summary table
@@ -412,7 +420,7 @@ MCMCtrace(ml_clean, pdf = FALSE, ind = TRUE, Rhat = TRUE, n.eff = TRUE, params =
 ############################################################################################
 
 # Get summaries for all N parameters
-N_summ <- MCMCsummary(ml_clean, params=c('N_c', 'N_y', 'N_o', 'N_tot'))   # extracts mean, sd, 2.5%, 50%, 97.5%
+N_summ <- MCMCsummary(ml_clean, params=c('N_c', 'N_y', 'N_o', 'N_total'))   # extracts mean, sd, 2.5%, 50%, 97.5%
 
 # Convert rownames to columns
 N_summ <- N_summ %>%
@@ -433,10 +441,10 @@ N_summ <- N_summ %>%
                         "N_c"   = "Calf",
                         "N_y"   = "Young Adult",
                         "N_o"   = "Old Adult",
-                        "N_tot" = "Total"))
+                        "N_total" = "Total"))
 
 
-dat_long <- dat %>%
+dat_long <- dat_n %>%
   pivot_longer(
     cols = -c(X,year),          # everything except year becomes stage/value pairs
     names_to = "stage",
@@ -446,7 +454,7 @@ dat_long <- dat %>%
                         n_calf  = "Calf",
                         n_cow_youngadult = "Young Adult",
                         n_cow_oldadult   = "Old Adult",
-                        n_total = "Total"))
+                        n_cow = "Total"))
 
 
 
@@ -488,7 +496,7 @@ vrates$rate <- factor(vrates$rate,
                                  "Young→old transition (g_y)",
                                  "Fecundity (young) (f_y)",
                                  "Fecundity (old) (f_o)"))
-vrates$year <- rep(1996:2023, 6)
+vrates$year <- rep(shared_years, 4)
 
 ggplot(vrates, aes(x = year, y = mean)) +
   geom_ribbon(aes(ymin = low, ymax = high), alpha = 0.2) +
