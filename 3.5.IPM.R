@@ -12,6 +12,7 @@ library(tidyverse)
 library(MCMCvis)
 library(ggplot2)
 library(nimble)
+library(coda)
 
 ############################################################################################
 #################### --------------- DATA IMPORT ---------------- ##########################
@@ -73,19 +74,13 @@ elk_ipm <- nimbleCode({
   ## (1) STATE-SPACE IPM 
   ## -----------------------------
   # priors 
-  for (t in 1:n_years-1) {
+  for (t in 1:n_years) {
     logit(s_c[t]) ~ dnorm(qlogis(0.22), 1 / 0.5^2)   # prior on calf survival
     logit(s_1y[t]) ~ dnorm(qlogis(0.70), 1 / 0.5^2)  # prior on 1y.o. survival
     logit(s_ya[t]) ~ dnorm(qlogis(0.90), 1 / 0.5^2)  # prior on young adult survival
     logit(s_oa[t]) ~ dnorm(qlogis(0.80), 1 / 0.5^2)  # prior on old adult survival
     logit(g_ya[t]) ~ dnorm(qlogis(0.15), 1 / 0.5^2)  # prior on young-to-old growth
-    
-    f_ya[t] ~ dbeta(1, 1)
-    f_oa[t] ~ dbeta(1, 1)
   }
-  
-  # priors
-
   
   # observation error prior + derive precision from SD
   sigma_obs_total ~ dunif(0.05, 2)
@@ -135,18 +130,22 @@ elk_ipm <- nimbleCode({
     p[t] ~ dunif(0, 1)
   }
   
-
+  
   for (i in 1:N) {
     # Time 1
     z[i, 1] ~ dbern(equals(1, first_seen[i]))
     
     # Times 2 onward
     for (t in 2:n_years) {
-      phi[i, t] <- is_class1[i, t-1] * s_ya[t-1] +
-        is_class2[i, t-1] * s_oa[t-1] + 1e-10 # turns on parts of the equation depending on class
+      # Ensure at least one class is active (add small constant)
+      phi[i, t] <- is_class1[i, t-1] * s_ya[t-1] + 
+        is_class2[i, t-1] * s_oa[t-1] +
+        1e-10  # prevent exactly 0
       
       z[i, t] ~ dbern(
-        step(t - first_seen[i] - 0.5) * z[i, t-1] * phi[i, t]
+        equals(t, first_seen[i]) +
+          step(t - first_seen[i] - 0.5) * (1 - equals(t, first_seen[i])) *
+          z[i, t-1] * phi[i, t]
       )
     }
     
@@ -171,6 +170,9 @@ elk_ipm <- nimbleCode({
   ## -----------------------------
 
   for (t in 1:(n_years-1)){
+    f_ya[t] ~ dbeta(1, 1)
+    f_oa[t] ~ dbeta(1, 1)
+    
     young_num_preg[t] ~ dbin(f_ya[t], young_num_capt[t])
     old_num_preg[t] ~ dbin(f_oa[t], old_num_capt[t])
   }
@@ -238,6 +240,13 @@ make_inits <- function() {
   }
   
   list(
+    # vital rates
+    s_c = rep(0.22, n_years),
+    s_1y = rep(0.70, n_years),
+    s_ya = rep(0.90, n_years),
+    s_oa = rep(0.80, n_years),
+    g_ya = rep(0.15, n_years),
+    
     # observation SDs
     sigma_obs_total = 0.30,
     
@@ -383,27 +392,26 @@ MCMCtrace(ml_clean, pdf = FALSE, ind = TRUE, Rhat = TRUE, n.eff = TRUE, params =
 ############################################################################################
 
 # Get summaries for all N parameters
-N_summ <- MCMCsummary(ml_clean, params=c('N_c', 'N_y', 'N_o', 'N_total'))   # extracts mean, sd, 2.5%, 50%, 97.5%
+N_summ <- MCMCsummary(ml_clean, params=c('N_1y', 'N_ya', 'N_oa', 'N_total'))   # extracts mean, sd, 2.5%, 50%, 97.5%
 
 # Convert rownames to columns
 N_summ <- N_summ %>%
   tibble::rownames_to_column("param") %>%
-  # Extract stage (N_c, N_y, N_o, N_tot) and time index number
   mutate(
-    stage = str_extract(param, "^N_[a-zA-Z]+"),
+    stage = str_extract(param, "^N_[a-zA-Z0-9_]+"),  # Added 0-9 and _
     t     = as.integer(str_extract(param, "(?<=\\[)\\d+(?=\\])"))
   ) %>%
   select(stage, t, mean = mean, low = `2.5%`, high = `97.5%`) %>%
   arrange(stage, t)
 
-years <- 1995:2023   # or however many years you have
+years <- shared_years   # or however many years you have
 N_summ <- N_summ %>% mutate(year = years[t])
 
 N_summ <- N_summ %>%
   mutate(stage = recode(stage,
-                        "N_c"   = "Calf",
-                        "N_y"   = "Young Adult",
-                        "N_o"   = "Old Adult",
+                        "N_1y"   = "Yearling",
+                        "N_ya"   = "Young Adult",
+                        "N_oa"   = "Old Adult",
                         "N_total" = "Total"))
 
 
@@ -414,16 +422,16 @@ dat_long <- dat_n %>%
     values_to = "value"
   ) %>%
   mutate(stage = recode(stage,
-                        n_calf  = "Calf",
+                        n_calf  = "Yearling",
                         n_cow_youngadult = "Young Adult",
                         n_cow_oldadult   = "Old Adult",
-                        n_cow = "Total"))
+                        n_female = "Total"))
 
 
 
 dat_long$stage <- factor(dat_long$stage, levels = unique(N_summ$stage))
 
-dat_long <- dat_long[dat_long$stage %in% c('Calf', 'Old Adult', 'Total', 'Young Adult'),]
+dat_long <- dat_long[dat_long$stage %in% c('Yearling', 'Young Adult', 'Old Adult', 'Total'),]
 
 ggplot(N_summ, aes(x = year, y = mean, group = stage)) +
   geom_ribbon(aes(ymin = low, ymax = high), alpha = 0.2) +
@@ -440,7 +448,7 @@ ggplot(N_summ, aes(x = year, y = mean, group = stage)) +
 ### what about vital rates?
 
 vrates <- MCMCsummary(ml_clean,
-                      params = c("s_c","s_ya","s_oa","g_y","f_y","f_o")) %>%
+                      params = c("s_c","s_1y","s_ya","s_oa","g_ya","f_ya","f_oa")) %>%
   as.data.frame() %>%
   rownames_to_column("param") %>%
   rename(mean = mean, low = `2.5%`, high = `97.5%`)
@@ -452,14 +460,17 @@ vrates <- vrates %>%
   )
 
 vrates$rate <- factor(vrates$rate,
-                      levels = c("s_c","s_ya","s_oa","g_y","f_y","f_o"),
+                      levels = c("s_c","s_1y","s_ya","s_oa","g_ya","f_ya","f_oa"),
                       labels = c("Calf survival (s_c)",
+                                 "Yearling survival (s_1y)",
                                  "Young survival (s_ya)",
                                  "Old survival (s_oa)",
                                  "Young→old transition (g_y)",
                                  "Fecundity (young) (f_y)",
                                  "Fecundity (old) (f_o)"))
-vrates$year <- rep(shared_years, 4)
+vrates_yearchunk1 <- rep(shared_years, 5)
+vrates_yearchunk2 <- rep(shared_years[-length(shared_years)], 2)
+vrates$year <- c(vrates_yearchunk1, vrates_yearchunk2)
 
 ggplot(vrates, aes(x = year, y = mean)) +
   geom_ribbon(aes(ymin = low, ymax = high), alpha = 0.2) +
