@@ -73,28 +73,35 @@ elk_ipm <- nimbleCode({
   ## (1) STATE-SPACE IPM 
   ## -----------------------------
   # priors 
-  for (t in 1:n_years) {
-    logit(s_c[t]) ~ dnorm(qlogis(0.22), 1 / 0.5^2)  # prior on calf survival
-    logit(s_y[t]) ~ dnorm(qlogis(0.90), 1 / 0.5^2)  # prior on young adult survival
-    logit(s_o[t]) ~ dnorm(qlogis(0.80), 1 / 0.5^2)  # prior on old adult survival
-    logit(g_y[t]) ~ dnorm(qlogis(0.15), 1 / 0.5^2)  # prior on young-to-old growth
+  for (t in 1:n_years-1) {
+    logit(s_c[t]) ~ dnorm(qlogis(0.22), 1 / 0.5^2)   # prior on calf survival
+    logit(s_1y[t]) ~ dnorm(qlogis(0.70), 1 / 0.5^2)  # prior on 1y.o. survival
+    logit(s_ya[t]) ~ dnorm(qlogis(0.90), 1 / 0.5^2)  # prior on young adult survival
+    logit(s_oa[t]) ~ dnorm(qlogis(0.80), 1 / 0.5^2)  # prior on old adult survival
+    logit(g_ya[t]) ~ dnorm(qlogis(0.15), 1 / 0.5^2)  # prior on young-to-old growth
+    
+    f_ya[t] ~ dbeta(1, 1)
+    f_oa[t] ~ dbeta(1, 1)
   }
+  
+  # priors
+
   
   # observation error prior + derive precision from SD
   sigma_obs_total ~ dunif(0.05, 2)
   tau_obs_total <- 1 / (sigma_obs_total^2)
   
   # initial expected values of stage-specific abundances
-  lambda_init_c ~ dgamma(11.1, 0.00454)   # mean ≈ 2451 (dat_n$n_calf[1] = 2451)
-  lambda_init_y ~ dgamma(11.1, 0.00118)   # mean ≈ 9418 (dat_n$n_cow_youngadult[1] = 9418)
-  lambda_init_o ~ dgamma(11.1, 0.0111)    # mean ≈ 997 (dat_n$n_cow_oldadult[1] = 997)
+  lambda_init_1y ~ dgamma(11.1, 0.00454)   # mean ≈ 2451 (dat_n$n_calf[1] = 2451)
+  lambda_init_ya ~ dgamma(11.1, 0.00118)   # mean ≈ 9418 (dat_n$n_cow_youngadult[1] = 9418)
+  lambda_init_oa ~ dgamma(11.1, 0.0111)    # mean ≈ 997 (dat_n$n_cow_oldadult[1] = 997)
   
   lambda_init_total ~ dgamma(11.1, 0.000863) # mean ≈ 12866 (sum of all three prev. values = 12866)
   
   # initial latent stage-specific abundances (from expected values)
-  N_c[1] ~ dpois(lambda_init_c)
-  N_y[1] ~ dpois(lambda_init_y)
-  N_o[1] ~ dpois(lambda_init_o)
+  N_1y[1] ~ dpois(lambda_init_1y)
+  N_ya[1] ~ dpois(lambda_init_ya)
+  N_oa[1] ~ dpois(lambda_init_oa)
   
   N_total[1] ~ dpois(lambda_init_total)
   
@@ -103,17 +110,17 @@ elk_ipm <- nimbleCode({
   # process model
   for (t in 1:(n_years-1)) {
     # expected values
-    mu_c[t+1] <- f_y[t] * s_c[t] * N_y[t] + f_o[t] * s_c[t] * N_o[t]
-    mu_y[t+1] <- s_y[t] * N_c[t] + s_y[t] * (1 - g_y[t]) * N_y[t]
-    mu_o[t+1] <- s_y[t] * g_y[t] * N_y[t] + s_o[t] * N_o[t]
+    mu_1y[t+1] <- f_ya[t] * s_c[t] * N_ya[t] + f_oa[t] * s_c[t] * N_oa[t]
+    mu_ya[t+1] <- s_1y[t] * N_1y[t] + s_ya[t] * (1 - g_ya[t]) * N_ya[t]
+    mu_oa[t+1] <- s_ya[t] * g_ya[t] * N_ya[t] + s_oa[t] * N_oa[t]
     
     # latent states
-    N_c[t+1] ~ dpois(max(1e-6, mu_c[t+1]))
-    N_y[t+1] ~ dpois(max(1e-9, mu_y[t+1]))
-    N_o[t+1] ~ dpois(max(1e-9, mu_o[t+1]))
+    N_1y[t+1] ~ dpois(max(1e-6, mu_1y[t+1]))
+    N_ya[t+1] ~ dpois(max(1e-9, mu_ya[t+1]))
+    N_oa[t+1] ~ dpois(max(1e-9, mu_oa[t+1]))
     
     # derive latent total abundance from latent stage-specific abundances 
-    N_total[t+1] <- N_c[t+1] + N_y[t+1] + N_o[t+1]
+    N_total[t+1] <- N_1y[t+1] + N_ya[t+1] + N_oa[t+1]
     
     # observations of total abundance are related to latent total abundance
     obs_total[t+1] ~ dlnorm(log(N_total[t+1] + 1e-6), tau_obs_total)
@@ -135,8 +142,8 @@ elk_ipm <- nimbleCode({
     
     # Times 2 onward
     for (t in 2:n_years) {
-      phi[i, t] <- is_class1[i, t-1] * s_y[t-1] +
-        is_class2[i, t-1] * s_o[t-1] + 1e-10 # turns on parts of the equation depending on class
+      phi[i, t] <- is_class1[i, t-1] * s_ya[t-1] +
+        is_class2[i, t-1] * s_oa[t-1] + 1e-10 # turns on parts of the equation depending on class
       
       z[i, t] ~ dbern(
         step(t - first_seen[i] - 0.5) * z[i, t-1] * phi[i, t]
@@ -154,9 +161,9 @@ elk_ipm <- nimbleCode({
   ## -----------------------------
   
   for (t in 1:(n_years-1)) {
-    N_c_fromYoungCows[t] ~ dbin(f_y[t] * s_c[t], n_cow_youngadult[t])
-    N_c_fromOldCows[t] ~ dbin(f_o[t] * s_c[t], n_cow_oldadult[t])
-    N_c[t] = N_c_fromYoungCows[t] + N_c_fromOldCows[t]
+    CCR_c_fromYoungCows[t] ~ dbin(f_ya[t] * s_c[t], CCR_cow_youngadult[t])
+    CCR_c_fromOldCows[t] ~ dbin(f_oa[t] * s_c[t], CCR_cow_oldadult[t])
+    CCR_c[t] <- CCR_c_fromYoungCows[t] + CCR_c_fromOldCows[t]
   }
   
   ## -----------------------------
@@ -164,13 +171,8 @@ elk_ipm <- nimbleCode({
   ## -----------------------------
 
   for (t in 1:(n_years-1)){
-    # priors
-    f_y[t] ~ dbeta(1, 1)
-    f_o[t] ~ dbeta(1, 1)
-    
-    # parameter estimation
-    young_num_preg[t] ~ dbin(f_y[t], young_num_capt[t])
-    old_num_preg[t] ~ dbin(f_o[t], old_num_capt[t])
+    young_num_preg[t] ~ dbin(f_ya[t], young_num_capt[t])
+    old_num_preg[t] ~ dbin(f_oa[t], old_num_capt[t])
   }
 })
 
@@ -196,8 +198,8 @@ elk_data <- list(
   old_num_preg = dat_fec$old_num_preg,
   old_num_capt = dat_fec$old_num_capt,
   # calf survival
-  n_cow_youngadult = dat_fec$n_cows_young,
-  n_cow_oldadult = dat_fec$n_cows_old
+  CCR_cow_youngadult = dat_fec$n_cows_young,
+  CCR_cow_oldadult = dat_fec$n_cows_old
 )
 
 
@@ -207,13 +209,13 @@ elk_data <- list(
 
 make_inits <- function() {
   # seed latent states near observations
-  init_Nc <- ifelse(is.na(dat_n$n_calf), # is n_calf is NA for a given year,
+  init_N1y <- ifelse(is.na(dat_n$n_calf), # is n_calf is NA for a given year,
                     pmax(1, round(mean(dat_n$n_calf, na.rm = TRUE))), # use the mean n_calf as initial, with na.rm
                     pmax(1, round(dat_n$n_calf))) # otherwise, use the "observed value"
-  init_Ny <- ifelse(is.na(dat_n$n_cow_youngadult),
+  init_Nya <- ifelse(is.na(dat_n$n_cow_youngadult),
                     pmax(1, round(mean(dat_n$n_cow_youngadult, na.rm = TRUE))),
                     pmax(1, round(dat_n$n_cow_youngadult)))
-  init_No <- ifelse(is.na(dat_n$n_cow_oldadult),
+  init_Noa <- ifelse(is.na(dat_n$n_cow_oldadult),
                     pmax(1, round(mean(dat_n$n_cow_oldadult, na.rm = TRUE))),
                     pmax(1, round(dat_n$n_cow_oldadult)))
   init_Ntotal <- ifelse(is.na(dat_n$n_total),
@@ -236,35 +238,17 @@ make_inits <- function() {
   }
   
   list(
-    # intercepts centered on beliefs
-    alpha_sc = qlogis(0.22),
-    alpha_sy = qlogis(0.90),
-    alpha_so = qlogis(0.85),
-    alpha_gy = qlogis(0.15),
-    
-    # SDs (start reasonably)
-    sigma_sc = 0.20, 
-    sigma_sy = 0.15, 
-    sigma_so = 0.15,
-    sigma_gy = 0.15, 
-    
-    # standard-normal year effects start at 0
-    eps_sc_std = rep(0, n_years),
-    eps_sy_std = rep(0, n_years),
-    eps_so_std = rep(0, n_years),
-    eps_gy_std = rep(0, n_years),
-    
     # observation SDs
     sigma_obs_total = 0.30,
     
     # initial abundances
-    lambda_init_c = max(1, round(init_Nc[1])),
-    lambda_init_y = max(1, round(init_Ny[1])),
-    lambda_init_o = max(1, round(init_No[1])),
+    lambda_init_1y = max(1, round(init_N1y[1])),
+    lambda_init_ya = max(1, round(init_Nya[1])),
+    lambda_init_oa = max(1, round(init_Noa[1])),
     lambda_init_total = max(1, round(init_Ntotal[1])),
-    N_c = pmax(1, init_Nc),
-    N_y = pmax(1, init_Ny),
-    N_o = pmax(1, init_No),
+    N_1y = pmax(1, init_N1y),
+    N_ya = pmax(1, init_Nya),
+    N_oa = pmax(1, init_Noa),
     N_total = pmax(1, init_Ntotal),
     
     # detection probability for cjs model
@@ -274,8 +258,8 @@ make_inits <- function() {
     z = z_init,
     
     # fecundity initials
-    f_y = rep(0.76, n_years - 1),  # mean(dat_fec$young_prop_pregnant, na.rm=TRUE) = 0.76
-    f_o = rep(0.64, n_years - 1)  # mean(dat_fec$old_prop_pregnant, na.rm=TRUE) = 0.64
+    f_ya = rep(0.76, n_years - 1),  # mean(dat_fec$young_prop_pregnant, na.rm=TRUE) = 0.76
+    f_oa = rep(0.64, n_years - 1)  # mean(dat_fec$old_prop_pregnant, na.rm=TRUE) = 0.64
   )
 }
 
@@ -284,19 +268,15 @@ make_inits <- function() {
 ## parameters to monitor
 ## -----------------------------
 params <- c(
-  # hyperparameters
-  "alpha_sc","alpha_sy","alpha_so","alpha_gy",
-  "sigma_sc","sigma_sy","sigma_so","sigma_gy",
-
   # yearly vital rates (shared by IPM & CJS)
-  "s_c","s_y","s_o","g_y",
-  "f_y", 'f_o',
+  "s_c", "s_1y", "s_ya","s_oa","g_ya",
+  "f_ya", 'f_oa',
 
   # detection (CJS)
   "p",
   
   # latent states (and total)
-  "N_c","N_y","N_o","N_total"
+  "N_1y","N_ya","N_oa","N_total"
 )
 
 ## -----------------------------
@@ -460,7 +440,7 @@ ggplot(N_summ, aes(x = year, y = mean, group = stage)) +
 ### what about vital rates?
 
 vrates <- MCMCsummary(ml_clean,
-                      params = c("s_c","s_y","s_o","g_y","f_y","f_o")) %>%
+                      params = c("s_c","s_ya","s_oa","g_y","f_y","f_o")) %>%
   as.data.frame() %>%
   rownames_to_column("param") %>%
   rename(mean = mean, low = `2.5%`, high = `97.5%`)
@@ -472,10 +452,10 @@ vrates <- vrates %>%
   )
 
 vrates$rate <- factor(vrates$rate,
-                      levels = c("s_c","s_y","s_o","g_y","f_y","f_o"),
+                      levels = c("s_c","s_ya","s_oa","g_y","f_y","f_o"),
                       labels = c("Calf survival (s_c)",
-                                 "Young survival (s_y)",
-                                 "Old survival (s_o)",
+                                 "Young survival (s_ya)",
+                                 "Old survival (s_oa)",
                                  "Young→old transition (g_y)",
                                  "Fecundity (young) (f_y)",
                                  "Fecundity (old) (f_o)"))
