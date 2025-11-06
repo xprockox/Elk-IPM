@@ -72,32 +72,15 @@ elk_ipm <- nimbleCode({
   ## -----------------------------
   ## (1) STATE-SPACE IPM 
   ## -----------------------------
-  # priors for intercepts (mean values of vital rates)
-  alpha_sc ~ dnorm(qlogis(0.22), 1/0.5^2)
-  alpha_sy ~ dnorm(qlogis(0.90), 1/0.5^2)
-  alpha_so ~ dnorm(qlogis(0.80), 1/0.5^2)
-  alpha_gy ~ dnorm(qlogis(0.15), 1/0.5^2) # only doing survival and growth because fecundity has its own model
-  
-  # priors for SD of intercepts (controls variation in vital rates away from mean values)
-  sigma_sc ~ T(dnorm(0, 1/0.4^2), 0, )
-  sigma_sy ~ T(dnorm(0, 1/0.3^2), 0, )
-  sigma_so ~ T(dnorm(0, 1/0.3^2), 0, )
-  sigma_gy ~ T(dnorm(0, 1/0.3^2), 0, )
-  
-  # estimation of vital rates using mean value +/- some variation 
-  # (sigma (SD) and eps (stochasticity))
-  for (t in 1:(n_years)) {
-    eps_sc_std[t] ~ dnorm(0,1)
-    eps_sy_std[t] ~ dnorm(0,1)
-    eps_so_std[t] ~ dnorm(0,1)
-    eps_gy_std[t] ~ dnorm(0,1)
-    
-    logit(s_c[t]) <- alpha_sc + sigma_sc * eps_sc_std[t]
-    logit(s_y[t]) <- alpha_sy + sigma_sy * eps_sy_std[t]
-    logit(s_o[t]) <- alpha_so + sigma_so * eps_so_std[t]
-    logit(g_y[t]) <- alpha_gy + sigma_gy * eps_gy_std[t]
+  # priors 
+  for (t in 1:n_years) {
+    logit(s_c[t]) ~ dnorm(qlogis(0.22), 1 / 0.5^2)  # prior on calf survival
+    logit(s_y[t]) ~ dnorm(qlogis(0.90), 1 / 0.5^2)  # prior on young adult survival
+    logit(s_o[t]) ~ dnorm(qlogis(0.80), 1 / 0.5^2)  # prior on old adult survival
+    logit(g_y[t]) ~ dnorm(qlogis(0.15), 1 / 0.5^2)  # prior on young-to-old growth
   }
   
+  # observation error prior + derive precision from SD
   sigma_obs_total ~ dunif(0.05, 2)
   tau_obs_total <- 1 / (sigma_obs_total^2)
   
@@ -120,10 +103,12 @@ elk_ipm <- nimbleCode({
   # process model
   for (t in 1:(n_years-1)) {
     # expected values
-    mu_y[t+1] <- s_c[t] * N_c[t] + s_y[t] * (1 - g_y[t]) * N_y[t]
+    mu_c[t+1] <- f_y[t] * s_c[t] * N_y[t] + f_o[t] * s_c[t] * N_o[t]
+    mu_y[t+1] <- s_y[t] * N_c[t] + s_y[t] * (1 - g_y[t]) * N_y[t]
     mu_o[t+1] <- s_y[t] * g_y[t] * N_y[t] + s_o[t] * N_o[t]
     
     # latent states
+    N_c[t+1] ~ dpois(max(1e-6, mu_c[t+1]))
     N_y[t+1] ~ dpois(max(1e-9, mu_y[t+1]))
     N_o[t+1] ~ dpois(max(1e-9, mu_o[t+1]))
     
@@ -150,15 +135,11 @@ elk_ipm <- nimbleCode({
     
     # Times 2 onward
     for (t in 2:n_years) {
-      # Ensure at least one class is active (add small constant)
-      phi[i, t] <- is_class1[i, t-1] * s_y[t-1] + 
-        is_class2[i, t-1] * s_o[t-1] +
-        1e-10  # prevent exactly 0
+      phi[i, t] <- is_class1[i, t-1] * s_y[t-1] +
+        is_class2[i, t-1] * s_o[t-1] + 1e-10 # turns on parts of the equation depending on class
       
       z[i, t] ~ dbern(
-        equals(t, first_seen[i]) +
-          step(t - first_seen[i] - 0.5) * (1 - equals(t, first_seen[i])) *
-          z[i, t-1] * phi[i, t]
+        step(t - first_seen[i] - 0.5) * z[i, t-1] * phi[i, t]
       )
     }
     
@@ -173,10 +154,9 @@ elk_ipm <- nimbleCode({
   ## -----------------------------
   
   for (t in 1:(n_years-1)) {
-    mu_c[t+1] <- f_y[t] * s_c[t] * N_y[t] +
-      f_o[t] * s_c[t] * N_o[t]
-    
-    N_c[t+1] ~ dpois(max(1e-6, mu_c[t+1]))
+    N_c_fromYoungCows[t] ~ dbin(f_y[t] * s_c[t], n_cow_youngadult[t])
+    N_c_fromOldCows[t] ~ dbin(f_o[t] * s_c[t], n_cow_oldadult[t])
+    N_c[t] = N_c_fromYoungCows[t] + N_c_fromOldCows[t]
   }
   
   ## -----------------------------
@@ -214,7 +194,10 @@ elk_data <- list(
   young_num_preg = dat_fec$young_num_preg,
   young_num_capt = dat_fec$young_num_capt,
   old_num_preg = dat_fec$old_num_preg,
-  old_num_capt = dat_fec$old_num_capt
+  old_num_capt = dat_fec$old_num_capt,
+  # calf survival
+  n_cow_youngadult = dat_fec$n_cows_young,
+  n_cow_oldadult = dat_fec$n_cows_old
 )
 
 
