@@ -443,7 +443,7 @@ dat_long$stage <- factor(dat_long$stage, levels = unique(N_summ$stage))
 
 dat_long <- dat_long[dat_long$stage %in% c('Yearling', 'Young Adult', 'Old Adult', 'Total'),]
 
-ggplot(N_summ, aes(x = year, y = mean, group = stage)) +
+validation_plot <- ggplot(N_summ, aes(x = year, y = mean, group = stage)) +
   geom_ribbon(aes(ymin = low, ymax = high), alpha = 0.2) +
   geom_line(size = 1) +
   geom_point(data = dat_long, aes(y = value), color = "red", size = 2) +
@@ -453,6 +453,8 @@ ggplot(N_summ, aes(x = year, y = mean, group = stage)) +
   labs(x = "Year", y = "Abundance",
        title = "Posterior Population Estimates with Validation Data",
        subtitle = "Ribbon = 95% credible interval, Line = posterior mean, Red = observed")
+
+validation_plot
 
 ############################################################################################
 ### what about vital rates?
@@ -482,7 +484,7 @@ vrates_yearchunk1 <- rep(shared_years, 5)
 vrates_yearchunk2 <- rep(shared_years[-length(shared_years)], 2)
 vrates$year <- c(vrates_yearchunk1, vrates_yearchunk2)
 
-ggplot(vrates, aes(x = year, y = mean)) +
+vrate_plot <- ggplot(vrates, aes(x = year, y = mean)) +
   geom_ribbon(aes(ymin = low, ymax = high), alpha = 0.2) +
   geom_line(size = 0.9) +
   facet_wrap(~ rate, scales = "free_y") +
@@ -490,3 +492,6 @@ ggplot(vrates, aes(x = year, y = mean)) +
   labs(x = "Year", y = "Estimated value",
        title = "Posterior Time-Varying Vital Rates (95% Credible Intervals)")
 
+vrate_plot
+
+save.image('environment_2024-11-06.RData')
