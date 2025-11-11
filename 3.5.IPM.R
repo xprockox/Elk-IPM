@@ -79,7 +79,7 @@ elk_ipm <- nimbleCode({
     logit(s_1y[t]) ~ dnorm(qlogis(0.70), 1 / 0.5^2)  # prior on 1y.o. survival
     logit(s_ya[t]) ~ dnorm(qlogis(0.90), 1 / 0.5^2)  # prior on young adult survival
     logit(s_oa[t]) ~ dnorm(qlogis(0.80), 1 / 0.5^2)  # prior on old adult survival
-    logit(g_ya[t]) ~ dnorm(qlogis(0.15), 1 / 0.5^2)  # prior on young-to-old growth
+    logit(p_13[t]) ~ dnorm(qlogis(0.15), 1 / 0.5^2)  # prior on young-to-old growth
   }
   
   # observation error prior + derive precision from SD
@@ -106,8 +106,8 @@ elk_ipm <- nimbleCode({
   for (t in 1:(n_years-1)) {
     # expected values
     mu_1y[t+1] <- f_ya[t] * s_c[t] * N_ya[t] + f_oa[t] * s_c[t] * N_oa[t]
-    mu_ya[t+1] <- s_1y[t] * N_1y[t] + s_ya[t] * (1 - g_ya[t]) * N_ya[t]
-    mu_oa[t+1] <- s_ya[t] * g_ya[t] * N_ya[t] + s_oa[t] * N_oa[t]
+    mu_ya[t+1] <- s_1y[t] * N_1y[t] + s_ya[t] * (1 - p_13[t]) * N_ya[t]
+    mu_oa[t+1] <- s_ya[t] * p_13[t] * N_ya[t] + s_oa[t] * N_oa[t]
     
     # latent states
     N_1y[t+1] ~ dpois(max(1e-6, mu_1y[t+1]))
@@ -176,6 +176,13 @@ elk_ipm <- nimbleCode({
     young_num_preg[t] ~ dbin(f_ya[t], young_num_capt[t])
     old_num_preg[t] ~ dbin(f_oa[t], old_num_capt[t])
   }
+  
+  ## -----------------------------
+  ## (5) GROWTH 
+  ## -----------------------------
+  for (t in 1:(n_years)){
+    harvested_13yo[t] ~ dbinom(p_13[t], harvested_ya[t])
+  }
 })
 
 ############################################################################################
@@ -201,7 +208,10 @@ elk_data <- list(
   old_num_capt = dat_fec$old_num_capt,
   # calf survival
   CCR_cow_youngadult = dat_fec$n_cows_young,
-  CCR_cow_oldadult = dat_fec$n_cows_old
+  CCR_cow_oldadult = dat_fec$n_cows_old,
+  # growth
+  harvested_13yo = dat_fec$harvested_age13,
+  harvested_ya = dat_fec$harvested_total
 )
 
 
@@ -245,7 +255,7 @@ make_inits <- function() {
     s_1y = rep(0.70, n_years),
     s_ya = rep(0.90, n_years),
     s_oa = rep(0.80, n_years),
-    g_ya = rep(0.15, n_years),
+    p_13 = rep(0.15, n_years),
     
     # observation SDs
     sigma_obs_total = 0.30,
@@ -278,7 +288,7 @@ make_inits <- function() {
 ## -----------------------------
 params <- c(
   # yearly vital rates (shared by IPM & CJS)
-  "s_c", "s_1y", "s_ya","s_oa","g_ya",
+  "s_c", "s_1y", "s_ya","s_oa","p_13",
   "f_ya", 'f_oa',
 
   # detection (CJS)
@@ -316,7 +326,7 @@ elk_mod1 <- nimbleMCMC(
 )
 
 # OR IMPORT PREVIOUSLY RUN MODEL TO WORK WITH RESULTS BEYOND HERE
-# elk_mod1 <- readRDS('data/results/elk_mod1_results.rds')
+load('data/results/elkIPM_environment_2024-11-06.RData')
 
 ## -----------------------------
 ## quick summary table
@@ -448,7 +458,7 @@ ggplot(N_summ, aes(x = year, y = mean, group = stage)) +
 ### what about vital rates?
 
 vrates <- MCMCsummary(ml_clean,
-                      params = c("s_c","s_1y","s_ya","s_oa","g_ya","f_ya","f_oa")) %>%
+                      params = c("s_c","s_1y","s_ya","s_oa","p_13","f_ya","f_oa")) %>%
   as.data.frame() %>%
   rownames_to_column("param") %>%
   rename(mean = mean, low = `2.5%`, high = `97.5%`)
@@ -460,7 +470,7 @@ vrates <- vrates %>%
   )
 
 vrates$rate <- factor(vrates$rate,
-                      levels = c("s_c","s_1y","s_ya","s_oa","g_ya","f_ya","f_oa"),
+                      levels = c("s_c","s_1y","s_ya","s_oa","p_13","f_ya","f_oa"),
                       labels = c("Calf survival (s_c)",
                                  "Yearling survival (s_1y)",
                                  "Young survival (s_ya)",
