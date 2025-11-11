@@ -196,25 +196,22 @@ ya_13_prop <- age_structure %>%
   mutate(year = as.numeric(substr(year, 2, 5))) %>% 
   group_by(year) %>%
   summarize(
-    n_age13 = sum(count[Age == 13], na.rm = TRUE),
-    n_total = sum(count, na.rm = TRUE),
-    prop_age13 = round(n_age13 / n_total,2),
+    harvested_age13 = sum(count[Age == 13], na.rm = TRUE),
+    harvested_total = sum(count, na.rm = TRUE),
+    prop_age13 = round(harvested_age13 / harvested_total, 2),
     .groups = "drop"
   ) 
 
 df <- left_join(df, ya_13_prop, by='year')
 
-df <- df %>%
-  select(-n_total.y, -n_age13) %>%
-  rename(n_total = n_total.x) %>%
-  mutate(n_age13 = round(n_total * prop_age13))
+df$n_age13 <- round(df$n_total * df$prop_age13)
 
 # there is one year where no 13 y.o. were harvested because the harvest #s were too low;
 # remove this 
 df$n_age13[df$n_age13 == 0] <- NA
-df$prop_age13[df$n_age13 == 0] <- NA
 df$prop_age13[is.na(df$n_age13)==TRUE] <- NA
-
+df$harvested_age13[is.na(df$n_age13)==TRUE] <- NA
+df$harvested_total[is.na(df$n_age13)==TRUE] <- NA
 
 ############################################################
 ### ------------------ DATA WRITING -------------------- ###
