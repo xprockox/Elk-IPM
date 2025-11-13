@@ -204,7 +204,7 @@ ya_13_prop <- age_structure %>%
 
 df <- left_join(df, ya_13_prop, by='year')
 
-df$n_age13 <- round(df$n_total * df$prop_age13)
+df$n_age13 <- round(df$n_cows_young * df$prop_age13)
 
 # there is one year where no 13 y.o. were harvested because the harvest #s were too low;
 # remove this 
