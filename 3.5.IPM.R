@@ -82,24 +82,24 @@ elk_ipm <- nimbleCode({
   }
   
   # observation error prior + derive precision from SD
-  sigma_obs_total ~ dunif(0.05, 2)
-  tau_obs_total <- 1 / (sigma_obs_total^2)
+  sigma_obs_female ~ dunif(0.05, 2)
+  tau_obs_female <- 1 / (sigma_obs_female^2)
   
   # initial expected values of stage-specific abundances
   lambda_init_1y ~ dgamma(11.1, 0.00454)   # mean ≈ 2451 (dat_n$n_1y[1] = 2451)
   lambda_init_ya ~ dgamma(11.1, 0.00118)   # mean ≈ 9418 (dat_n$n_cow_youngadult[1] = 9418)
   lambda_init_oa ~ dgamma(11.1, 0.0111)    # mean ≈ 997 (dat_n$n_cow_oldadult[1] = 997)
   
-  lambda_init_total ~ dgamma(11.1, 0.000863) # mean ≈ 12866 (sum of all three prev. values = 12866)
+  lambda_init_female ~ dgamma(11.1, 0.000863) # mean ≈ 12866 (sum of all three prev. values = 12866)
   
   # initial latent stage-specific abundances (from expected values)
   N_1y[1] ~ dpois(lambda_init_1y)
   N_ya[1] ~ dpois(lambda_init_ya)
   N_oa[1] ~ dpois(lambda_init_oa)
   
-  N_total[1] ~ dpois(lambda_init_total)
+  N_female[1] ~ dpois(lambda_init_female)
   
-  obs_total[1] ~ dlnorm(log(N_total[1] + 1e-6), tau_obs_total)
+  obs_female[1] ~ dlnorm(log(N_female[1] + 1e-6), tau_obs_female)
   
   # process model
   for (t in 1:(n_years-1)) {
@@ -113,11 +113,11 @@ elk_ipm <- nimbleCode({
     N_ya[t+1] ~ dpois(max(1e-9, mu_ya[t+1]))
     N_oa[t+1] ~ dpois(max(1e-9, mu_oa[t+1]))
     
-    # derive latent total abundance from latent stage-specific abundances 
-    N_total[t+1] <- N_1y[t+1] + N_ya[t+1] + N_oa[t+1]
+    # derive latent total female abundance from latent stage-specific abundances 
+    N_female[t+1] <- N_1y[t+1] + N_ya[t+1] + N_oa[t+1]
     
-    # observations of total abundance are related to latent total abundance
-    obs_total[t+1] ~ dlnorm(log(N_total[t+1] + 1e-6), tau_obs_total)
+    # observations of total female abundance are related to latent total female abundance
+    obs_female[t+1] ~ dlnorm(log(N_female[t+1] + 1e-6), tau_obs_female)
   }
   
   ## -----------------------------
@@ -194,7 +194,7 @@ elk_constants <- list(n_years = n_years, N = N)
 
 elk_data <- list(
   # state-space
-  obs_total = dat_n$n_female,  # female-only
+  obs_female = dat_n$n_female,  # female-only
   # CJS
   y = y,
   is_class1 = is_class1,
@@ -229,9 +229,9 @@ make_inits <- function() {
   init_Noa <- ifelse(is.na(dat_n$n_cow_oldadult),
                     pmax(1, round(mean(dat_n$n_cow_oldadult, na.rm = TRUE))),
                     pmax(1, round(dat_n$n_cow_oldadult)))
-  init_Ntotal <- ifelse(is.na(dat_n$n_total),
-                    pmax(1, round(mean(dat_n$n_total, na.rm = TRUE))),
-                    pmax(1, round(dat_n$n_total)))
+  init_Nfemale <- ifelse(is.na(dat_n$n_female),
+                    pmax(1, round(mean(dat_n$n_female, na.rm = TRUE))),
+                    pmax(1, round(dat_n$n_female)))
   
   z_init <- matrix(NA, nrow = nrow(y), ncol = ncol(y))
   for (i in 1:nrow(y)) {
@@ -256,17 +256,17 @@ make_inits <- function() {
     p_13 = rep(0.15, n_years),
     
     # observation SDs
-    sigma_obs_total = 0.30,
+    sigma_obs_female = 0.30,
     
     # initial abundances
     lambda_init_1y = max(1, round(init_N1y[1])),
     lambda_init_ya = max(1, round(init_Nya[1])),
     lambda_init_oa = max(1, round(init_Noa[1])),
-    lambda_init_total = max(1, round(init_Ntotal[1])),
+    lambda_init_female = max(1, round(init_Nfemale[1])),
     N_1y = pmax(1, init_N1y),
     N_ya = pmax(1, init_Nya),
     N_oa = pmax(1, init_Noa),
-    N_total = pmax(1, init_Ntotal),
+    N_female = pmax(1, init_Nfemale),
     
     # detection probability for cjs model
     p = runif(n_years, 0.6, 0.95),
@@ -292,8 +292,8 @@ params <- c(
   # detection (CJS)
   "p",
   
-  # latent states (and total)
-  "N_1y","N_ya","N_oa","N_total"
+  # latent states (and female)
+  "N_1y","N_ya","N_oa","N_female"
 )
 
 ## -----------------------------
@@ -400,7 +400,7 @@ MCMCtrace(ml_clean, pdf = FALSE, ind = TRUE, Rhat = TRUE, n.eff = TRUE, params =
 ############################################################################################
 
 # Get summaries for all N parameters
-N_summ <- MCMCsummary(ml_clean, params=c('N_1y', 'N_ya', 'N_oa', 'N_total'))   # extracts mean, sd, 2.5%, 50%, 97.5%
+N_summ <- MCMCsummary(ml_clean, params=c('N_1y', 'N_ya', 'N_oa', 'N_female'))   # extracts mean, sd, 2.5%, 50%, 97.5%
 
 # Convert rownames to columns
 N_summ <- N_summ %>%
@@ -420,7 +420,7 @@ N_summ <- N_summ %>%
                         "N_1y"   = "Yearling",
                         "N_ya"   = "Young Adult",
                         "N_oa"   = "Old Adult",
-                        "N_total" = "Total"))
+                        "N_female" = "Total Females"))
 
 
 dat_long <- dat_n %>%
@@ -433,13 +433,11 @@ dat_long <- dat_n %>%
                         n_calf  = "Yearling",
                         n_cow_youngadult = "Young Adult",
                         n_cow_oldadult   = "Old Adult",
-                        n_female = "Total"))
-
-
+                        n_female = "Total Females"))
 
 dat_long$stage <- factor(dat_long$stage, levels = unique(N_summ$stage))
 
-dat_long <- dat_long[dat_long$stage %in% c('Yearling', 'Young Adult', 'Old Adult', 'Total'),]
+dat_long <- dat_long[dat_long$stage %in% c('Yearling', 'Young Adult', 'Old Adult', 'Total Females'),]
 
 validation_plot <- ggplot(N_summ, aes(x = year, y = mean, group = stage)) +
   geom_ribbon(aes(ymin = low, ymax = high), alpha = 0.2) +
