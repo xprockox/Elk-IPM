@@ -1,0 +1,21 @@
+----- CSV FILES -----
++  elk_classification_2025-10-17.csv: classification data received from Dan (email from Oct 14, 2025), added later years data from FWP reports
+
++  elk_counts_2023-07-09.csv: abundance data received from Dan (email from Feb. 5, 2025)
+
++  elk_GPS_2025-09-03.csv: GPS data received from Brian (email from Sept. 21, 2025)
+
++  elk_survival_2025-10-14.csv: cleaned up version of ELK_FATE_MASTER_2025-09-25 (recently proofed last date alive & last date status) that includes only relevant columns for constructing survival matrices
+
++  elk_pregnancy_collars_2025-07-18.csv: cleaned up version of ELK_COLLAR_MASTER (Study Capture ID spreadsheet in email from Jack with all three spreadsheets: Elk Mortality, Elk Study Capture ID, and Elk Air-Ground Locations dated July 18, 2025)
+
++  elk_pregnancy_harvest_2015-03-24.csv: from Box… YNP > YNP Databases > Elk & Wolves > Elk > Elk Demography Data > pregnancy_harvest_data1.xlsx … Uploaded by Michel Kohl Mar. 24, 2015
+
++  elk_vhf_2025-07-18.csv: all VHF data from the YNP elk master database as of July 2025; renamed from Elk Air-Ground Locations (email from Jack with all three spreadsheets: Elk Mortality, Elk Study Capture ID, and Elk Air-Ground Locations dated July 18, 2025)
+
++  elk_harvest_2021.csv: Harvest numbers reported to MT-FWP by age for each year from 1995-2021; obtained from Lainie Brice via email dated 2025-05-29. 
+
+----- EXCEL FILES -----
++  ELK_FATE_MASTER_2025-09-25.xlsx: recently proofed elk fates
+
++  elk_survival_2025-10-14.xlsx: cleaned up version of ELK_FATE_MASTER_2025-09-25 that includes only relevant columns for constructing survival matrices
