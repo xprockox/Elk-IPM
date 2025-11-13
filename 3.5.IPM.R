@@ -86,7 +86,7 @@ elk_ipm <- nimbleCode({
   tau_obs_total <- 1 / (sigma_obs_total^2)
   
   # initial expected values of stage-specific abundances
-  lambda_init_1y ~ dgamma(11.1, 0.00454)   # mean ≈ 2451 (dat_n$n_calf[1] = 2451)
+  lambda_init_1y ~ dgamma(11.1, 0.00454)   # mean ≈ 2451 (dat_n$n_1y[1] = 2451)
   lambda_init_ya ~ dgamma(11.1, 0.00118)   # mean ≈ 9418 (dat_n$n_cow_youngadult[1] = 9418)
   lambda_init_oa ~ dgamma(11.1, 0.0111)    # mean ≈ 997 (dat_n$n_cow_oldadult[1] = 997)
   
@@ -324,7 +324,7 @@ elk_mod1 <- nimbleMCMC(
 )
 
 # OR IMPORT PREVIOUSLY RUN MODEL TO WORK WITH RESULTS BEYOND HERE
-# load('data/results/elkIPM_environment_2024-11-06.RData')
+load('data/results/elkIPM_environment_2024-11-11.RData')
 
 ## -----------------------------
 ## quick summary table
@@ -474,10 +474,10 @@ vrates$rate <- factor(vrates$rate,
                       labels = c("Calf survival (s_c)",
                                  "Young survival (s_ya)",
                                  "Old survival (s_oa)",
-                                 "Young→old transition (g_y)",
+                                 "Young→old transition (p_13)",
                                  "Fecundity (young) (f_y)",
                                  "Fecundity (old) (f_o)"))
-vrates_yearchunk1 <- rep(shared_years, 5)
+vrates_yearchunk1 <- rep(shared_years, 4)
 vrates_yearchunk2 <- rep(shared_years[-length(shared_years)], 2)
 vrates$year <- c(vrates_yearchunk1, vrates_yearchunk2)
 
@@ -490,5 +490,7 @@ vrate_plot <- ggplot(vrates, aes(x = year, y = mean)) +
        title = "Posterior Time-Varying Vital Rates (95% Credible Intervals)")
 
 vrate_plot
+
+stop('The following line will overwrite data. Are you sure you would like to proceed?')
 
 save.image('environment_2024-11-06.RData')
