@@ -1,5 +1,5 @@
 # Elk-IPM
-Integrated population model for elk in the northern range of Yellowstone. Model is a pre-birth-pulse three-stage matrix population model with the following stages: yearlings (0-1 year), young adults (2-13 years), and old adults (14+ years). A "year" as defined in this model runs from June 1 - May 31 of the following year. 
+Integrated population model for elk in the northern range of Yellowstone. Model is a pre-birth-pulse, female-only, three-stage matrix population model with the following stages: yearlings (0-1 year), young adults (2-13 years), and old adults (14+ years). A "year" as defined in this model runs from June 1 - May 31 of the following year. 
 
 <img loading="lazy" width="1000px" src="./figures/Screenshot 2025-11-14 at 11.47.50.png" alt="image_name png" />
 
