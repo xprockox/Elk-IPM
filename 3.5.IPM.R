@@ -324,7 +324,7 @@ elk_mod1 <- nimbleMCMC(
 )
 
 # OR IMPORT PREVIOUSLY RUN MODEL TO WORK WITH RESULTS BEYOND HERE
-load('data/results/elkIPM_environment_2024-11-11.RData')
+load('data/results/elkIPM_environment_2024-11-13.RData')
 
 ## -----------------------------
 ## quick summary table
@@ -440,15 +440,16 @@ dat_long$stage <- factor(dat_long$stage, levels = unique(N_summ$stage))
 dat_long <- dat_long[dat_long$stage %in% c('Yearling', 'Young Adult', 'Old Adult', 'Total Females'),]
 
 validation_plot <- ggplot(N_summ, aes(x = year, y = mean, group = stage)) +
-  geom_ribbon(aes(ymin = low, ymax = high), alpha = 0.2) +
+  geom_ribbon(aes(ymin = low, ymax = high, fill=stage), alpha = 0.2) +
   geom_line(size = 1) +
-  geom_point(data = dat_long, aes(y = value), color = "red", size = 2) +
-  geom_line(data = dat_long, aes(y = value), color = "red", linetype = 2) +
+  geom_point(data = dat_long[dat_long$stage=='Total Females',], aes(y = value), color = "red", size = 2) +
+  geom_line(data = dat_long[dat_long$stage=='Total Females',], aes(y = value), color = "red", linetype = 2) +
   facet_wrap(~ stage, scales = "free_y") +
   theme_bw() +
   labs(x = "Year", y = "Abundance",
        title = "Posterior Population Estimates with Validation Data",
-       subtitle = "Ribbon = 95% credible interval, Line = posterior mean, Red = observed")
+       subtitle = "Ribbon = 95% credible interval, Line = posterior mean, Red = observed")+
+  theme(legend.position='none')
 
 validation_plot
 
@@ -461,31 +462,32 @@ vrates <- MCMCsummary(ml_clean,
   rownames_to_column("param") %>%
   rename(mean = mean, low = `2.5%`, high = `97.5%`)
 
-vrates <- vrates %>%
+vrates2 <- vrates %>%
   mutate(
     year_index = as.integer(str_extract(param, "(?<=\\[)\\d+(?=\\])")),
     rate = str_extract(param, "^[^\\[]+")  # remove bracket indices
   )
 
-vrates$rate <- factor(vrates$rate,
+vrates2$rate <- factor(vrates2$rate,
                       levels = c("s_c","s_ya","s_oa","p_13","f_ya","f_oa"),
                       labels = c("Calf survival (s_c)",
-                                 "Young survival (s_ya)",
-                                 "Old survival (s_oa)",
+                                 "Young Adult survival (s_ya)",
+                                 "Old Adult survival (s_oa)",
                                  "Young→old transition (p_13)",
                                  "Fecundity (young) (f_y)",
                                  "Fecundity (old) (f_o)"))
-vrates_yearchunk1 <- rep(shared_years, 4)
-vrates_yearchunk2 <- rep(shared_years[-length(shared_years)], 2)
-vrates$year <- c(vrates_yearchunk1, vrates_yearchunk2)
+vrates2_yearchunk1 <- rep(shared_years, 4)
+vrates2_yearchunk2 <- rep(shared_years[-length(shared_years)], 2)
+vrates2$year <- c(vrates2_yearchunk1, vrates2_yearchunk2)
 
-vrate_plot <- ggplot(vrates, aes(x = year, y = mean)) +
-  geom_ribbon(aes(ymin = low, ymax = high), alpha = 0.2) +
+vrate_plot <- ggplot(vrates2, aes(x = year, y = mean)) +
+  geom_ribbon(aes(ymin = low, ymax = high, fill = rate), alpha = 0.2) +
   geom_line(size = 0.9) +
   facet_wrap(~ rate, scales = "free_y") +
-  theme_bw() +
+  theme_minimal() +
   labs(x = "Year", y = "Estimated value",
-       title = "Posterior Time-Varying Vital Rates (95% Credible Intervals)")
+       title = "Posterior Time-Varying Vital Rates (95% Credible Intervals)") + 
+  theme(legend.position = "none")
 
 vrate_plot
 
