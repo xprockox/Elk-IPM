@@ -1,13 +1,13 @@
 # Elk-IPM
 Integrated population model for elk in the northern range of Yellowstone. Model is a pre-birth-pulse three-stage matrix population model with the following stages: yearlings (0-1 year), young adults (2-13 years), and old adults (14+ years). A "year" as defined in this model runs from June 1 - May 31 of the following year. 
 
-<img loading="lazy" width="30px" src="./media/images/image_name.png" alt="image_name png" />
+<img loading="lazy" width="1000px" src="./figures/Screenshot 2025-11-14 at 11.47.50.png" alt="image_name png" />
 
 ## The model
 
 The full elk IPM is contained in 3.5.IPM.R and comprises four sub-models: (1) fecundity, (2) calf survival, (3) adult survival, and (4) growth from young adult to adult. These all estimate parameters to be used in the full state-space model which estimates stage-specific abundances.
 
-<img loading="lazy" width="30px" src="./media/images/image_name.png" alt="image_name png" />
+<img loading="lazy" width="1000px" src="./figures/Screenshot 2025-11-14 at 11.44.55.png" alt="image_name png" />
 
 ## Data
 
@@ -15,7 +15,7 @@ The full elk IPM is contained in 3.5.IPM.R and comprises four sub-models: (1) fe
 
 The elk IPM incorporates data from hunter harvests (occuring Oct - Dec of a given year), collared elk (collared in Dec - Jan of a given year), total elk counts (estimated from aerial flights conducted in Jan - Feb), and elk classification surveys (also from aerial counts, but conducted in Mar - Apr). Hunter harvest data includes the age structure and pregnancy status of all harvested cows reported for GMUs 313 and 316 (immediately north of the Yellowstone park boundary). Collared individuals are used in the survival model (Cormack Jolly Seber), and the pregnancy status + age of each collared elk is also used. Classification surveys provide information on the percentage of cows seen in various groups (population-level average % cows) and calf:cow ratios (also population-level averages). 
 
-<img loading="lazy" width="30px" src="./media/images/image_name.png" alt="image_name png" />
+<img loading="lazy" width="1000px" src="./figures/Screenshot 2025-11-14 at 11.49.05.png" alt="image_name png" />
 
 ## Data management scripts
 
