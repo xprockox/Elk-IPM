@@ -11,7 +11,7 @@ The full elk IPM is contained in 3.5.IPM.R and comprises four sub-models: (1) fe
 
 ## Data
 
-**A full description of all data contained in this repository can be found in data/data_sources_key.txt**
+**Data may only be made available upon request, pending permissions from collaborators. Please email michael.procko@usu.edu to inquire about data availability.**
 
 The elk IPM incorporates data from hunter harvests (occuring Oct - Dec of a given year), collared elk (collared in Dec - Jan of a given year), total elk counts (estimated from aerial flights conducted in Jan - Feb), and elk classification surveys (also from aerial counts, but conducted in Mar - Apr). Hunter harvest data includes the age structure and pregnancy status of all harvested cows reported for GMUs 313 and 316 (immediately north of the Yellowstone park boundary). Collared individuals are used in the survival model (Cormack Jolly Seber), and the pregnancy status + age of each collared elk is also used. Classification surveys provide information on the percentage of cows seen in various groups (population-level average % cows) and calf:cow ratios (also population-level averages). 
 
