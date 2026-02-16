@@ -494,3 +494,6 @@ vrate_plot
 stop('The following line will overwrite data. Are you sure you would like to proceed?')
 
 save.image('environment_2024-11-06.RData')
+
+write.csv(vrates2, 'data/results/elk_vrates_2026-02-16.csv')
+write.csv(N_summ, 'data/results/elk_N_byStages_2026-02-16.csv')
