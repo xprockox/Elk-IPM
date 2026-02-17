@@ -162,7 +162,7 @@ for (i in 1:nrow(df_clean)) {
 for (i in 1:n_indiv) {
   for (t in 1:n_years) {
     if (!is.na(z[i, t]) && z[i, t] == 0 && y[i, t] == 1) {
-      message(paste("Setting y[", i, ",", t, "] to NA due to z = 0 but y = 1"))
+      message(paste("Setting y[",i,",",t,"] to NA due to z = 0 but y = 1"))
       y[i, t] <- NA  # mask inconsistent observations
     }
     
@@ -186,20 +186,11 @@ z[y == 1] <- 1
 # (i.e.i.e we're pretending we don't have cementum info)
 z_clipped <- z  # Copy original latent state matrix
 
-for (i in 1:n_indiv) {
-  cap_year <- df_clean$CaptureYear[i]
-  cap_idx <- which(years == cap_year)
-  
-  if (length(cap_idx) == 1) {
-    z_clipped[i, 1:(cap_idx - 1)] <- NA  # Mask all years before capture
-  }
-}
-
-# drop years before capture
-z_clipped <- z_clipped[,19:ncol(z_clipped)]
+# limit to study years
+z_clipped <- z_clipped[,14:ncol(z_clipped)]
 
 # now do the same for the observation matrix
-y_clipped <- y[,19:ncol(y)]
+y_clipped <- y[,14:ncol(y)]
 
 ############################################################
 ### ---------------- VISUALIZE MATRICES ---------------- ###
@@ -363,7 +354,7 @@ for (i in 1:n_indiv) {
 }
 
 # clip to years 2000:2024
-age_class_clipped <- age_class_clipped[,19:ncol(age_class_clipped)]
+age_class_clipped <- age_class_clipped[,14:ncol(age_class_clipped)]
 
 # create dummy matrices that are 0s and 1s representing each class (helps with if-then
 # logic in the model block, since NIMBLE doesn't support actual if-then statements)
