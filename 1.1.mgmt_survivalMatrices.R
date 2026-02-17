@@ -84,7 +84,7 @@ n_indiv <- nrow(df_clean)
 ############################################################
 
 # Initialize matrices
-y <- matrix(0, nrow = n_indiv, ncol = n_years) # observations
+y <- matrix(NA, nrow = n_indiv, ncol = n_years) # observations
 z <- matrix(NA, nrow = n_indiv, ncol = n_years) # latent (true) states
 colnames(y) <- colnames(z) <- years
 rownames(y) <- rownames(z) <- df_clean$ID
@@ -119,6 +119,7 @@ for (i in 1:n_indiv) {
   # Extract observed years from VHF
   vhf_years <- vhf %>%
     filter(ID == elk_id) %>%
+    filter(Year <= last_year) %>%
     pull(Year) %>%
     unique()
   
@@ -153,25 +154,39 @@ for (i in 1:nrow(df_clean)) {
   }
   
   if (!is.na(cap_idx) && cap_idx > 1) {
-    y[i, 1:(cap_idx - 1)] <- 0
+    y[i, 1:(cap_idx - 1)] <- NA
   }
 }
 
-# Now if the latent state (true state) is dead, there can't be an observation.
-# Mask impossible observations in y: set to NA if z = 0
-for (i in 1:n_indiv) {
-  for (t in 1:n_years) {
-    if (!is.na(z[i, t]) && z[i, t] == 0 && y[i, t] == 1) {
-      message(paste("Setting y[",i,",",t,"] to NA due to z = 0 but y = 1"))
-      y[i, t] <- NA  # mask inconsistent observations
+# for some individuals, there is a gap, e.g. 1, 1, 1, NA, NA, 1
+# in these cases, we know the individual was alive, but not detected
+# so we fill those in with 0s using this:
+for (i in 1:nrow(df_clean)) {
+  print(i)
+  
+  capture_year <- year(df_clean$Capture.Date[i])
+  last_year <- year(df_clean$Last.Date.Alive[i])
+  
+  print(capture_year)
+  print(last_year)
+  
+  capture_idx <- match(capture_year, years)
+  last_idx <- match(last_year, years)
+  
+  print(capture_idx)
+  print(last_idx)
+  
+  if (!is.na(capture_idx) && !is.na(last_idx) && capture_idx <= last_idx) {
+    
+    for (t in capture_idx:last_idx) {
+      if (is.na(y[i, t])) {
+        y[i, t] <- 0
+      }
     }
     
-    # Optional: also mask y after last known alive (if not already done)
-    if (!is.na(z[i, t]) && z[i, t] == 0) {
-      y[i, t] <- NA  # cannot be observed if truly dead
-    }
   }
 }
+
 
 # And add a final check:
 
