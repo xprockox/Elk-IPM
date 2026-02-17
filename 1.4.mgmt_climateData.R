@@ -24,7 +24,7 @@ nr <- vect("data/master/gis/nr_bound/Northern_Range_Bound.shp")
 # ----------------------------------------------------------
 # 3. Date Range (Start 1 year early for WY 1999)
 # ----------------------------------------------------------
-start_year <- 1998
+start_year <- 1994
 end_year   <- 2023
 
 # # ----------------------------------------------------------
@@ -33,27 +33,27 @@ end_year   <- 2023
 # *** Note: this is time-intensive and may have already been done. ***
 #
 # # ----------------------------------------------------------
-# # Years to download
-# years <- start_year:end_year
-# 
-# # Months to download
-# months <- 1:12
-# 
-# # Precipitation
-# get_prism_monthlys(
-#   type = "ppt",
-#   years = years,
-#   mon = months,
-#   keepZip = FALSE
-# )
-# 
-# # Mean temperature
-# get_prism_monthlys(
-#   type = "tmean",
-#   years = years,
-#   mon = months,
-#   keepZip = FALSE
-# )
+# Years to download
+years <- start_year:end_year
+
+# Months to download
+months <- 1:12
+
+# Precipitation
+get_prism_monthlys(
+  type = "ppt",
+  years = years,
+  mon = months,
+  keepZip = FALSE
+)
+
+# Mean temperature
+get_prism_monthlys(
+  type = "tmean",
+  years = years,
+  mon = months,
+  keepZip = FALSE
+)
 
 # ----------------------------------------------------------
 # 5. Load Rasters
