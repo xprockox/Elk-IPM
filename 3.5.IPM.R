@@ -301,8 +301,8 @@ params <- c(
 ## -----------------------------
 set.seed(17)
 nc <- 3
-ni <- 1000000
-nb <- 200000
+ni <- 1000
+nb <- 20
 th <- 4
 
 ############################################################################################
@@ -323,8 +323,12 @@ elk_mod1 <- nimbleMCMC(
   summary   = TRUE
 )
 
+# SAVE OUTPUT
+# stop('The following line will overwrite data. Are you sure you would like to proceed?')
+save.image('environment_2026-02-17.RData')
+
 # OR IMPORT PREVIOUSLY RUN MODEL TO WORK WITH RESULTS BEYOND HERE
-load('data/results/elkIPM_environment_2024-11-13.RData')
+# load('data/results/elkIPM_environment_2024-11-13.RData')
 
 ## -----------------------------
 ## quick summary table
