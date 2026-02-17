@@ -89,112 +89,83 @@ z <- matrix(NA, nrow = n_indiv, ncol = n_years) # latent (true) states
 colnames(y) <- colnames(z) <- years
 rownames(y) <- rownames(z) <- df_clean$ID
 
-# Fill in matrices
 for (i in 1:n_indiv) {
-  elk <- df_clean[i, ]
-  elk_id <- elk$ID
   
-  birth_year <- elk$BirthYear
-  capture_year <- year(elk$Capture.Date)
-  last_year <- year(elk$Last.Date.Alive)
-  status <- elk$Last.Date.Status
+  elk_id <- df_clean$ID[i]
   
-  # Column indices
-  birth_idx <- which(years == birth_year)
-  capture_idx <- which(years == capture_year)
-  last_idx <- which(years == last_year)
+  birth_year   <- df_clean$BirthYear[i]
+  capture_year <- year(df_clean$Capture.Date[i])
+  last_year    <- year(df_clean$Last.Date.Alive[i])
+  status       <- df_clean$Last.Date.Status[i]
   
-  # Latent state: assume alive from birth through year of last known alive
+  # Convert to column indices
+  birth_idx   <- match(birth_year, years)
+  capture_idx <- match(capture_year, years)
+  last_idx    <- match(last_year, years)
+  
+  ########################################################
+  ### 1) LATENT STATE MATRIX (z)
+  ########################################################
+  
+  # Alive from birth through last known alive year
   if (!is.na(birth_idx) && !is.na(last_idx)) {
     z[i, birth_idx:last_idx] <- 1
   }
   
-  # If known dead, mark all years after death as 0
-  if (status == "Dead" && last_idx < n_years) {
-    z[i, (last_idx + 1):n_years] <- 0
-  }
-  
-  # Observation matrix (y) constructed based on VHF and GPS data
-  
-  # Extract observed years from VHF
-  vhf_years <- vhf %>%
-    filter(ID == elk_id) %>%
-    filter(Year <= last_year) %>%
-    pull(Year) %>%
-    unique()
-  
-  # Extract observed years from GPS
-  gps_years <- gps %>%
-    filter(ID == elk_id) %>%
-    pull(Year) %>%
-    unique()
-  
-  # Combine and deduplicate
-  observed_years <- sort(unique(c(vhf_years, gps_years)))
-  
-  # Fill y matrix
-  for (yr in observed_years) {
-    if (yr %in% years) {
-      y[i, as.character(yr)] <- 1
+  # After last known alive
+  if (!is.na(last_idx) && last_idx < n_years) {
+    if (status == "Dead") {
+      z[i, (last_idx+1):n_years] <- 0
+    } else {  # status == "Live"
+      z[i, (last_idx+1):n_years] <- NA
     }
   }
-}
-
-# The above process does not necessarily mark the year of capture as a detection, 
-# e.g. if the collar failed immediately and provided no GPS or VHF data,
-# so we can force detections for all individuals during their year of capture:
-df_clean$CaptureYear <- lubridate::year(df_clean$Capture.Date)
-
-for (i in 1:nrow(df_clean)) {
-  cap_year <- df_clean$CaptureYear[i]
-  cap_idx <- which(years == cap_year)
   
-  if (length(cap_idx) == 1) {
-    y[i, cap_idx] <- 1
+  ########################################################
+  ### 2) DETECTION MATRIX (y)
+  ########################################################
+  
+  # Get detection years from BOTH sources
+  gps_years <- gps$Year[gps$ID == elk_id]
+  vhf_years <- vhf$Year[vhf$ID == elk_id]
+  
+  observed_years <- sort(unique(c(gps_years, vhf_years)))
+  
+  # Keep only years within alive window
+  observed_years <- observed_years[
+    observed_years >= capture_year &
+      observed_years <= last_year
+  ]
+  
+  # Convert to indices
+  obs_idx <- match(observed_years, years)
+  
+  # 2a) Mark detections as 1
+  if (length(obs_idx) > 0) {
+    y[i, obs_idx] <- 1
   }
   
-  if (!is.na(cap_idx) && cap_idx > 1) {
-    y[i, 1:(cap_idx - 1)] <- NA
+  # 2b) FORCE capture year to be a detection
+  if (!is.na(capture_idx)) {
+    y[i, capture_idx] <- 1
+  }
+  
+  # 2c) Fill zeros BETWEEN capture and last known alive
+  if (!is.na(capture_idx) && !is.na(last_idx)) {
+    idx_window <- capture_idx:last_idx
+    y[i, idx_window][is.na(y[i, idx_window])] <- 0
+  }
+  
+  # 2d) Before capture = NA
+  if (!is.na(capture_idx) && capture_idx > 1) {
+    y[i, 1:(capture_idx-1)] <- NA
+  }
+  
+  # 2e) After last known alive = NA
+  if (!is.na(last_idx) && last_idx < n_years) {
+    y[i, (last_idx+1):n_years] <- NA
   }
 }
-
-# for some individuals, there is a gap, e.g. 1, 1, 1, NA, NA, 1
-# in these cases, we know the individual was alive, but not detected
-# so we fill those in with 0s using this:
-for (i in 1:nrow(df_clean)) {
-  print(i)
-  
-  capture_year <- year(df_clean$Capture.Date[i])
-  last_year <- year(df_clean$Last.Date.Alive[i])
-  
-  print(capture_year)
-  print(last_year)
-  
-  capture_idx <- match(capture_year, years)
-  last_idx <- match(last_year, years)
-  
-  print(capture_idx)
-  print(last_idx)
-  
-  if (!is.na(capture_idx) && !is.na(last_idx) && capture_idx <= last_idx) {
-    
-    for (t in capture_idx:last_idx) {
-      if (is.na(y[i, t])) {
-        y[i, t] <- 0
-      }
-    }
-    
-  }
-}
-
-
-# And add a final check:
-
-# If z = 0, we should not see an observation (mask it)
-y[z == 0] <- 0
-
-# Ensure that wherever y = 1, z = 1
-z[y == 1] <- 1
 
 # create a new latent state matrix that does not include information about births 
 # (i.e. the individual is NA up until capture despite being alive)
