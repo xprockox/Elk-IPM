@@ -15,8 +15,8 @@ library(coda)
 # ------------------------------------------------------------
 
 dat <- read.csv('data/master/allSpp_Abundances.csv')
-elk_n <- read.csv('data/results/elk_N_byStages_2026-02-16.csv')
-elk_vrates <- read.csv('data/results/elk_vrates_2026-02-16.csv')
+elk_n <- read.csv('data/results/elk_N_byStages_2026-02-17.csv')
+elk_vrates <- read.csv('data/results/elk_vrates_2026-02-17.csv')
 clim_dat <- read.csv('data/intermediate/prism_monthly_snow.csv')
 
 # ------------------------------------------------------------
@@ -75,7 +75,6 @@ dat <- dat %>%
 # Remove incomplete rows
 dat <- dat[complete.cases(dat), ]
 
-
 # ------------------------------------------------------------
 # Standardize predator abundances (mean = 0, SD = 1)
 # Allows direct comparison of regression coefficients
@@ -83,9 +82,14 @@ dat <- dat[complete.cases(dat), ]
 
 dat_scaled <- dat %>%
   mutate(
-    wolf_z = scale(wolf_n)[,1],
-    cougar_z = scale(cougar_n)[,1],
-    griz_z = scale(griz_n)[,1]
+    wolf_z = as.numeric(scale(wolf_n)),
+    cougar_z = as.numeric(scale(cougar_n)),
+    griz_z = as.numeric(scale(griz_n))
+  ) %>%
+  mutate(
+    ### added Feb. 18, 2026:
+    # combine grizzly and cougars to form "non-wolf preds"
+    nonWolf_z = as.numeric(scale(cougar_z + griz_z))
   )
 
 rm(m_cougar)
@@ -150,6 +154,7 @@ head(dat_all)
 # ------------------------------------------------------------
 
 dat_all <- left_join(dat_all, clim_dat_scaled, by='year')
+
 # ------------------------------------------------------------
 # Logit transformations
 # Necessary because survival is bounded (0,1)
@@ -179,8 +184,7 @@ dat_all <- dat_all %>%
 # Frequentist diagnostic of collinearity
 # ------------------------------------------------------------
 
-cor(dat_all[, c("wolf_z", "cougar_z", "griz_z")])
-
+cor(dat_all[, c("griz_z", "cougar_z", "wolf_z")])
 
 # ------------------------------------------------------------
 # Pulling out residuals of grizzlies and cougars
@@ -190,14 +194,51 @@ cor(dat_all[, c("wolf_z", "cougar_z", "griz_z")])
 # with wolves, we can instead use their residuals to find the effect
 # of each of these species independent of the wolf signal.
 
-# For grizzlies, we find the residual of griz ~ wolf
-griz_resid <- resid(lm(griz_z ~ wolf_z, data = dat_all))
-griz_resid <- scale(griz_resid)[,1]
+#### COMMENTED OUT, NEW FUNCTION IMPLEMENTED
+# # For grizzlies, we find the residual of griz ~ wolf
+# griz_resid <- resid(lm(griz_z ~ wolf_z, data = dat_all))
+# griz_resid <- scale(griz_resid)[,1]
+# 
+# # Then to separate cougars from both wolves + grizzlies, 
+# # we find the residual of cougar ~ wolf + griz
+# cougar_resid <- resid(lm(cougar_z ~ wolf_z + griz_z, data = dat_all))
+# cougar_resid <- scale(cougar_resid)[,1]
 
-# Then to separate cougars from both wolves + grizzlies, 
-# we find the residual of cougar ~ wolf + griz
-cougar_resid <- resid(lm(cougar_z ~ wolf_z + griz_z, data = dat_all))
-cougar_resid <- scale(cougar_resid)[,1]
+
+make_predator_set <- function(dat, predator_order) {
+  
+  # storage list
+  preds <- list()
+  
+  for (i in seq_along(predator_order)) {
+    
+    current <- predator_order[i]
+    
+    if (i == 1) {
+      # first predictor stays raw (just standardized)
+      preds[[current]] <- scale(dat[[current]])[,1]
+      
+    } else {
+      # regress current on all previous predictors
+      previous <- predator_order[1:(i-1)]
+      
+      formula_string <- paste(current, "~", paste(previous, collapse = " + "))
+      model <- lm(as.formula(formula_string), data = dat)
+      
+      resid_vec <- resid(model)
+      preds[[current]] <- scale(resid_vec)[,1]
+    }
+  }
+  
+  return(preds)
+}
+
+predator_order = c( "wolf_z", "griz_z", "cougar_z")
+
+preds <- make_predator_set(
+  dat_all,
+  predator_order = predator_order
+)
 
 # ------------------------------------------------------------
 # construct NIMBLE model (framework, can be adapted for any response var)
@@ -210,9 +251,10 @@ run_model <- function(response_vector) {
   
   data_list <- list(
     y = response_vector,
-    wolf = dat_all$wolf_z,
-    cougar = cougar_resid,
-    griz = griz_resid,
+    wolf = preds$wolf_z,
+    # nonWolf = dat_all$nonWolf_z,
+    cougar = preds$cougar_z,
+    griz = preds$griz_z,
     winter_precip = dat_all$winter_precip_z,
     freezing = dat_all$freezing_months_z
   )
@@ -226,6 +268,7 @@ run_model <- function(response_vector) {
     alpha ~ dnorm(0, sd = 5)
     
     beta_w ~ dnorm(0, sd = 1)
+    # beta_nw ~ dnorm(0, sd = 1)
     beta_c ~ dnorm(0, sd = 1)
     beta_g ~ dnorm(0, sd = 1)
     
@@ -243,6 +286,7 @@ run_model <- function(response_vector) {
       
       mu[t] <- alpha +
         beta_w * wolf[t] +
+        # beta_nw * nonWolf[t] +
         beta_c * cougar[t] +
         beta_g * griz[t] +
         beta_winter * winter_precip[t] +
@@ -256,6 +300,7 @@ run_model <- function(response_vector) {
     list(
       alpha = rnorm(1, 0, 0.5),
       beta_w = rnorm(1, 0, 0.5),
+      # beta_nw = rnorm(1, 0, 0.5),
       beta_c = rnorm(1, 0, 0.5),
       beta_g = rnorm(1, 0, 0.5),
       beta_winter = rnorm(1, 0, 0.5),
@@ -264,7 +309,7 @@ run_model <- function(response_vector) {
     )
   }
   
-  samples <- nimbleMCMC(
+  out <- nimbleMCMC(
     code = code,
     data = data_list,
     inits = inits_function,
@@ -273,17 +318,31 @@ run_model <- function(response_vector) {
     nburnin = 10000,
     nchains = 3,
     monitors = c("alpha",
-                 "beta_w", "beta_c", "beta_g",
-                 "beta_winter", "beta_freeze",
+                 "beta_w", 
+                 # "beta_nw",
+                 "beta_c",
+                 "beta_g",
+                 "beta_winter", 
+                 "beta_freeze",
                  "sigma_resid"),
-    summary = FALSE
+    summary = FALSE,
+    WAIC = TRUE
   )
+  
+  samples <- out$samples
+  waic_val <- out$WAIC
   
   # ---------------------------------------------------
   # Convert to coda for diagnostics
   # ---------------------------------------------------
   
-  mcmc_list <- mcmc.list(lapply(samples, mcmc))
+  n_iter <- nrow(samples[[1]])
+  
+  mcmc_list <- mcmc.list(
+    lapply(samples, function(x)
+      mcmc(x, start = 1, end = n_iter, thin = 1)
+    )
+  )
   
   posterior_summary <- summary(mcmc_list)
   
@@ -307,7 +366,11 @@ run_model <- function(response_vector) {
     ESS = ess
   )
   
-  return(results_table)
+  return(list(
+    summary = results_table,
+    samples = mcmc_list,
+    WAIC = waic_val
+  ))
 }
 
 # ------------------------------------------------------------
@@ -316,48 +379,60 @@ run_model <- function(response_vector) {
 
 # calf survival
 results_s_c <- run_model(dat_all$s_c_logit)
-results_s_c
 
 # young adult survival
 results_s_ya <- run_model(dat_all$s_ya_logit)
-results_s_ya
 
 # old adult survival
 results_s_oa <- run_model(dat_all$s_oa_logit)
-results_s_oa
 
 # young adult fecundity
 results_f_ya <- run_model(dat_all$log_f_ya)
-results_f_ya
 
 # old adult fecundity
 results_f_oa <- run_model(dat_all$log_f_oa)
-results_f_oa
 
 # total abundance
 results_N_total <- run_model(dat_all$log_N_total)
-results_N_total
+
+# # WAIC
+# results_s_c$WAIC$WAIC
+# results_s_ya$WAIC$WAIC
+# results_s_oa$WAIC$WAIC
+# results_f_ya$WAIC$WAIC
+# results_f_oa$WAIC$WAIC
+# results_N_total$WAIC$WAIC
+# 
+# # reminder of what predator hierarchy this is (if applicable)
+# predator_order
+
+results_s_c$summary
+results_s_ya$summary
+results_s_oa$summary
+results_f_ya$summary
+results_f_oa$summary
+results_N_total$summary
 
 # ------------------------------------------------------------
 # and visualize the results
 # ------------------------------------------------------------
 
-# Add vital rate labels
-results_s_c$rate <- "Calf survival"
-results_s_ya$rate <- "Young adult survival"
-results_s_oa$rate <- "Old adult survival"
-results_f_ya$rate <- "Young adult fecundity"
-results_f_oa$rate <- "Old adult fecundity"
-results_N_total$rate <- "Total abundance"
+# Add vital rate names to results
+results_s_c$summary$rate  <- "Calf survival"
+results_s_ya$summary$rate <- "Young adult survival"
+results_s_oa$summary$rate <- "Old adult survival"
+results_f_ya$summary$rate <- "Young adult fecundity"
+results_f_oa$summary$rate <- "Old adult fecundity"
+results_N_total$summary$rate <- "Total abundance"
 
-# Combine
+# Bind all results together
 all_results <- bind_rows(
-  results_s_c,
-  results_s_ya,
-  results_s_oa,
-  results_f_ya,
-  results_f_oa,
-  results_N_total,
+  results_s_c$summary,
+  results_s_ya$summary,
+  results_s_oa$summary,
+  results_f_ya$summary,
+  results_f_oa$summary,
+  results_N_total$summary
 )
 
 # The rownames currently contain parameter names
@@ -370,6 +445,7 @@ all_results <- all_results %>%
   mutate(
     predictor = case_when(
       parameter == "beta_w"        ~ "Wolves",
+      # parameter == "beta_nw"       ~ "Non-Wolf Predators",
       parameter == "beta_g"        ~ "Grizzlies",
       parameter == "beta_c"        ~ "Cougars",
       parameter == "beta_winter"   ~ "Winter precipitation",
@@ -399,24 +475,29 @@ ggplot(all_results,
     x = NULL
   )+
   theme(
-    strip.text = element_blank(),
+    # strip.text = element_blank(),
     strip.background = element_blank()
   )
 
+dat_all$griz_resid <- preds$griz_z
+dat_all$cougar_resid <- preds$cougar_z
+
 ggplot(dat_all)+
   geom_line(aes(x=year, y=wolf_z))+
-  geom_line(aes(x=year, y=griz_z))
+  geom_line(aes(x=year, y=griz_resid))
 
 
 # ------------------------------------------------------------
 # Plot time series of all standardized predictors
 # ------------------------------------------------------------
 
+
 predictor_ts <- dat_all %>%
   select(year,
          wolf_z,
-         griz_z,
-         cougar_z,
+         # nonWolf_z,
+         griz_resid,
+         cougar_resid,
          winter_precip_z,
          freezing_months_z,
          `Total Females`) %>%
@@ -437,12 +518,47 @@ ggplot(predictor_ts,
   )
 
 
-ggplot(dat_all, aes(x=wolf_n, y=`Total Females`))+
+p1 <- ggplot(dat_all, aes(x=griz_resid, y=s_ya))+
   geom_point()+
   geom_smooth(method = "lm", se = TRUE) +
   theme_bw(base_size = 12) +
   labs(
-    x = "NR Wolf Abundance",
-    y = "NR Elk Abundance (female-only)",
-    title = "NR Wolf and Elk Abundance Data from 2000-2023"
+    y = "Young Adult Survival",
+    title = " "
   )
+
+p2 <- ggplot(dat_all, aes(x=griz_resid, y=s_oa))+
+  geom_point()+
+  geom_smooth(method = "lm", se = TRUE) +
+  theme_bw(base_size = 12) +
+  labs(
+    y = "Old Adult Survival",
+    title = " "
+  )
+
+cowplot::plot_grid(p1, p2)
+
+# ------------------------------------------------------------
+# Testing collinearity post-analysis
+# ------------------------------------------------------------
+
+### using VIF in a frequentist framework:
+library(car)
+
+vif_model <- lm(
+  s_c_logit ~ wolf_z + griz_z + cougar_z +
+    winter_precip_z + freezing_months_z,
+  data = dat_all
+)
+
+car::vif(vif_model)
+
+
+### checking posterior correlations:
+col_df <- results_N_total
+
+results_col <- col_df$summary
+samples_col <- col_df$samples
+
+posterior_matrix <- as.matrix(samples_col)
+cor(posterior_matrix[, c("beta_w", "beta_g", "beta_c")])
