@@ -7,6 +7,7 @@
 ############################################################
 
 library(tidyverse)
+library(zoo)
 
 ############################################################
 ### ------------------ DATA LOADING -------------------- ###
@@ -60,6 +61,107 @@ abundances <- abundances %>%
          n_btb = round(n_total * percent_btb),
          n_bull = round(n_total * percent_bull),
          sigma_tot_log = round((log(n_total_U95) - log(n_total_L95)) / (2*1.96),2))
+
+############################################################
+########--------------- DATA VIZ ---------------############
+############################################################
+
+# visualize timeseries of young vs. old adults harvested
+harvest_long <- harvest %>%
+  pivot_longer(
+    cols = starts_with("Y"),
+    names_to = "Year",
+    values_to = "Harvest"
+  ) %>%
+  mutate(
+    Year = as.numeric(sub("Y", "", Year)),
+    AgeClass = case_when(
+      Age >= 1 & Age <= 13 ~ "Young Adult",
+      Age >= 14 ~ "Old Adult"
+    )
+  ) %>%
+  group_by(Year, AgeClass) %>%
+  summarise(TotalHarvest = sum(Harvest, na.rm = TRUE), .groups = "drop")
+
+p1 <- ggplot(harvest_long, aes(x = Year, y = TotalHarvest)) +
+  geom_line(size = 1.1) +
+  facet_wrap(~ AgeClass, ncol = 1, scales = "free_y") +
+  labs(
+    x = "Year",
+    y = "Number Harvested"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    strip.text = element_text(face = "bold"),
+    panel.spacing = unit(1.2, "lines")
+  )
+p1 
+
+# filter abundance data down to 1995:2021 because that's the time range of the harvest data
+dat_n_2021 <- abundances %>%
+  filter(year %in% 1995:2021) %>%
+  arrange(year)
+
+# estimate the percent cows in the total elk population using:
+# 1. % cow estimates from classification flights
+# 2. interpolated % cow estimates for years where flights did not happen
+# 3. total elk numbers multiplied by % cow estimates
+dat_n_2021$percent_cow_filled <- zoo::na.approx(dat_n_2021$percent_cow)
+dat_n_2021$n_cow <- dat_n_2021$percent_cow_filled * dat_n_2021$n_total
+
+harvest_long <- harvest_long %>%
+  left_join(
+    dat_n_2021 %>% select(year, n_cow),
+    by = c("Year" = "year")
+  )
+
+# plot proportion of age classes harvested each year
+harvest_prop <- harvest_long %>%
+  group_by(Year) %>%
+  mutate(
+    YearTotal = sum(TotalHarvest, na.rm = TRUE),
+    Prop = TotalHarvest / YearTotal
+  ) %>%
+  ungroup()
+
+p2 <- ggplot(harvest_prop, aes(x = Year, y = Prop)) +
+  geom_line(size = 1.1) +
+  facet_wrap(~ AgeClass, ncol = 1, scales = "free_y") +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(
+    x = "Year",
+    y = "Proportion of Total Harvest"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    strip.text = element_text(face = "bold"),
+    panel.spacing = unit(1.2, "lines")
+  )
+p2
+
+# estimate the number of individuals in old vs. young classes for the NR female elk population 
+# by multiplying n_cow by proportions of each class harvested
+harvest_prop <- harvest_prop %>%
+  mutate(
+    pop_structure = Prop * n_cow
+  )
+
+p3 <- ggplot(harvest_prop, aes(x = Year, y = pop_structure)) +
+  geom_line(size = 1.1) +
+  facet_wrap(~ AgeClass, ncol = 1, scales = "free_y") +
+  labs(
+    x = "Year",
+    y = "Stage-Specific Female Population Estimates"
+  ) +
+  theme_minimal(base_size = 14)
+p3
+
+# Plot all together
+cowplot::plot_grid(p1, p2, p3, ncol=3)
+
+############################################################
+#####----------- (MORE) DATA MANAGEMENT ---------------#####
+############################################################
 
 harvest <- harvest %>%
   rename(age = 1) %>%
