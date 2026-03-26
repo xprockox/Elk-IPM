@@ -156,14 +156,10 @@ for (i in 1:n_indiv) {
     y[i, idx_window][is.na(y[i, idx_window])] <- 0
   }
   
-  # 2d) Before capture = NA
-  if (!is.na(capture_idx) && capture_idx > 1) {
-    y[i, 1:(capture_idx-1)] <- NA
-  }
-  
-  # 2e) After last known alive = NA
-  if (!is.na(last_idx) && last_idx < n_years) {
-    y[i, (last_idx+1):n_years] <- NA
+  # Fill zeros from capture through end of study
+  if (!is.na(capture_idx)) {
+    idx_window <- capture_idx:n_years
+    y[i, idx_window][is.na(y[i, idx_window])] <- 0
   }
 }
 
