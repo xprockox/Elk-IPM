@@ -325,7 +325,7 @@ elk_mod1 <- nimbleMCMC(
 
 # SAVE OUTPUT
 # stop('The following line will overwrite data. Are you sure you would like to proceed?')
-# save.image('environment_2026-02-17.RData')
+save.image('environment_2026-03-26.RData')
 
 # OR IMPORT PREVIOUSLY RUN MODEL TO WORK WITH RESULTS BEYOND HERE
 load('data/results/elkIPM_environment_2026-02-17.RData')
