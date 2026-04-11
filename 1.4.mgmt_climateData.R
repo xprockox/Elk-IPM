@@ -59,10 +59,10 @@ get_prism_monthlys(
 # 5. Load Rasters
 # ----------------------------------------------------------
 # List archive folders
-ppt_archives <- prism_archive_ls() |> 
+ppt_archives <- prism_archive_ls() %>%
   grep("ppt", x = _, value = TRUE)
 
-tmean_archives <- prism_archive_ls() |> 
+tmean_archives <- prism_archive_ls() %>% 
   grep("tmean", x = _, value = TRUE)
 
 # Build raster stacks properly
@@ -79,8 +79,10 @@ tmean_stack <- rast(tmean_stack_r) / 100
 
 nr <- project(nr, crs(ppt_stack))
 
-ppt_nr <- crop(ppt_stack, nr) |> mask(nr)
-tmean_nr <- crop(tmean_stack, nr) |> mask(nr)
+ppt_nr <- crop(ppt_stack, nr) %>% 
+  mask(nr)
+tmean_nr <- crop(tmean_stack, nr) %>%
+  mask(nr)
 
 # ----------------------------------------------------------
 # 7. Extract Monthly Area Means
@@ -139,7 +141,8 @@ snow_metrics <- data.frame(
   winter_precip = as.numeric(winter_precip),
   april1_winter_precip = as.numeric(april1_precip[names(winter_precip)]),
   freezing_months = as.numeric(freezing_months[names(winter_precip)])
-) |> arrange(water_year)
+) %>%
+  arrange(water_year)
 
 print(snow_metrics)
 
