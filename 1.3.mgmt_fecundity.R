@@ -8,6 +8,7 @@
 
 library(tidyverse)
 library(lubridate)
+library(zoo)
 
 ############################################################
 ### ------------------ DATA IMPORT --------------------- ###
@@ -50,7 +51,11 @@ df$bull_cow_ratio <- round(df$bull_per100cow / 100, 2)
 
 df$total_elk <- as.numeric(df$total_elk)
 
-df$percent_cows <- df$cows / df$total_elk
+df <- df %>%
+  mutate(
+    percent_cows = cows / total_elk,
+    percent_cows = na.approx(percent_cows, x = year, na.rm = FALSE)
+  )
 
 df$n_cows <- round(df$n_total * df$percent_cows)
 df$n_calves <- round(df$n_total * df$percent_cows * df$calf_cow_ratio)
